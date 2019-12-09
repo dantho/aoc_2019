@@ -40,7 +40,6 @@ fn intcode_run(v: &mut Vec<isize>, machine_input: Vec<isize>, machine_output: &m
                     Some(v) => v,
                     None => panic!("Input buffer empty."),
                 };
-                println!("Input: {}", v[p1 as usize]);
                 i += 2;
             }
             4 => {
@@ -111,7 +110,10 @@ fn amplifier_x5(v: &mut Vec<isize>, phase_x5: Vec<isize>, machine_input: isize, 
     *machine_output = input;
 }
 fn main() {
-    let filename = "day07_example1.txt";
+    let filename = "day07_input.txt";
+    // let filename = "day07_example1.txt";
+    // let filename = "day07_example2.txt";
+    // let filename = "day07_example3.txt";
     let fd = File::open(filename).expect(&format!("Failure opening {}", filename));
     let buf = BufReader::new(fd);
     let mut v_orig = Vec::new();
@@ -124,7 +126,30 @@ fn main() {
     let mut v = v_orig.clone();
     let input = 0;
     let mut out: isize = 999999;
-    let phase = vec![4,3,2,1,0];
-    amplifier_x5(&mut v, phase, input, &mut out);
-    println!("Output: {}", out);
+    let mut max_out = std::isize::MIN;
+    let phases0 = vec![4,3,2,1,0];
+    for ph0 in 0..5 {
+        let mut phases1 = phases0.clone();
+        phases1.remove(ph0);
+        for ph1 in 0..4 {
+            let mut phases2 = phases1.clone();
+            phases2.remove(ph1);
+            for ph2 in 0..3 {
+                let mut phases3 = phases2.clone();
+                phases3.remove(ph2);
+                for ph3 in 0..2 {
+                    let mut phases4 = phases3.clone();
+                    phases4.remove(ph3);
+                    for ph4 in 0..1 {
+                        let phase = vec![phases4[ph4],phases3[ph3],phases2[ph2],phases1[ph1],phases0[ph0]];
+                        amplifier_x5(&mut v, phase.clone(), input, &mut out);
+                        if out > max_out {
+                            println!("Part 1) Max thruster signal {} (from phase setting sequence {:?})", out, phase);
+                            max_out = out;
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
