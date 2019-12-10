@@ -114,6 +114,8 @@ fn main() {
     // let filename = "day07_example1.txt";
     // let filename = "day07_example2.txt";
     // let filename = "day07_example3.txt";
+    // let filename = "day07_example4.txt";
+    // let filename = "day07_example5.txt";
     let fd = File::open(filename).expect(&format!("Failure opening {}", filename));
     let buf = BufReader::new(fd);
     let mut v_orig = Vec::new();
