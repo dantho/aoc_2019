@@ -45,7 +45,6 @@ fn main() {
         layer.iter().flatten().for_each(|d| {
             *digihash.entry(d).or_default() += 1;
         });
-        println!("HashMap: {:?}", digihash);
         let zeros = if let Some(cnt) = digihash.get(&0) {*cnt} else {0};
         // Decide what to return (fold), old layer or this new one
         let layer_num = layer_num + 1;
@@ -58,4 +57,23 @@ fn main() {
         }
     });
     println!("Part 1 answer is {}.", cnt_1s as i32 * cnt_2s as i32);
+
+    // Process image: 2=transparent (ignore), 1=white, 0=black
+    let transparent_flat_layer = vec![2u8;rows*cols];
+    let processed_flat_layer = all_layers.into_iter()
+    .fold(transparent_flat_layer, |upper, lower| {
+        upper.into_iter().zip(lower.into_iter().flatten())
+        .map(|(u,l)|{
+            if u == 2 {l} else {u}
+        }).collect()
+    });
+    // Print processed image
+    processed_flat_layer.iter()
+    .map(|d|{if *d == 1 {'#'} else {' '}})
+    .enumerate()
+    .for_each(|(num,c)|{
+        if 0 == num % cols { println!(""); }
+        print!("{}", c);
+    })
+    
 }
