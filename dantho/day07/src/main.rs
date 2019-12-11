@@ -141,9 +141,9 @@ async fn amplifier_x5(prog: Vec<isize>, phase_x5: Vec<isize>, initial_input: isi
         a.pop().expect("Amplifier A result stream not found."),
     );
     // Based on dataflow, and assuming each amplifier terminates cleanly in order,
-    // the last channel should have one final result "in the pipe".
+    // the last channel, E, should have one final result "in the pipe".
     // BUT, the last amplifier's output receiver is connect to the first amplifier's input
-    // SO, we need the first amplifier's returned receiver.
+    // SO, we need the first (A) amplifier's returned receiver.
     (result_streams.4).next().await.expect("Amplifier Output channel EMPTY.")
 }
 fn main() {
@@ -164,7 +164,7 @@ fn main() {
     });
     let initial_input = 0;
     let mut max_out = std::isize::MIN;
-    let phases0 = vec![4,3,2,1,0];
+    let phases0 = vec![9,8,7,6,5];
     for ph0 in 0..5 {
         let mut phases1 = phases0.clone();
         phases1.remove(ph0);
