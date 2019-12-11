@@ -88,7 +88,7 @@ impl Opcode {
 }
 impl std::convert::TryFrom<[usize; 4]> for Opcode {
     type Error = Error;
-    fn try_from([code, a, b, c]: [usize; 4]) -> Result<Self, Self::Error> {
+    fn try_from([code, a, b, c]: [usize; 4]) -> Result<Self, Error> {
         let opcode = match code {
             1 => Opcode::Add([a, b, c]),
             2 => Opcode::Multiply([a, b, c]),
