@@ -246,64 +246,16 @@ async fn robot_run(mut rx: Receiver<isize>, mut tx: Sender<isize>) -> Result<Has
         }
         if let Some(color_v) = rx.next().await {
             *this_panel_color = PaintColor::try_from(color_v)?;
-            println!("Robot: Painting {:?}", *this_panel_color);
+            // println!("Robot: Painting {:?}", *this_panel_color);
         } else { break; }
         if let Some(turn_v) = rx.next().await {
             robot_orientation = robot_orientation.turn(TurnDirection::try_from(turn_v)?);
             robot_location = robot_orientation.step(robot_location);
-            println!("Robot: At {:?} facing {:?}", robot_location, robot_orientation);
-                // pass it through blindly...
+            // println!("Robot: At {:?} facing {:?}", robot_location, robot_orientation);
         } else { break; }
     }
     Ok(paint_map)
 }
-// pub struct ManInTheMiddle<'a, T: Debug> {
-//     original_tx: &'a mut Sender<T>,
-//     tx: Sender<T>,
-//     rx: Receiver<T>,
-//     debug_prefix: Option<String>,
-// }
-// impl<'a, T> ManInTheMiddle<'a, T> 
-//     where T: Debug {
-//     fn new(original_tx: &'a mut Sender<T>, debug_prefix: &str) -> Self {
-//         const BUFFER_SIZE: usize = 100;
-//         let (tx, rx) = channel::<T>(BUFFER_SIZE);
-//         let debug_prefix = if 0 == debug_prefix.len() {
-//             None
-//         } else {
-//             Some(debug_prefix.to_owned())
-//         };
-//         ManInTheMiddle { original_tx, tx, rx, debug_prefix }
-//     }
-//     pub fn tx_ptr(&'a mut self) -> &'a mut Sender<T> {
-//         &mut self.tx
-//     }
-//     async fn monitor(&mut self)
-//         where T: Debug {
-//         loop {
-//             // fetch package
-//             let msg: T = match self.rx.next().await {
-//                 Some(m) => m,
-//                 None => {
-//                     if let Some(prefix) = self.debug_prefix {
-//                         println!("{}: Terminating now due to input channel termination.", prefix);
-//                     };
-//                     return;
-//                 }
-//             };
-//             // [optional] monitor output
-//             if let Some(prefix) = self.debug_prefix {
-//                 println!("{}: {:?}", prefix, msg);
-//             };
-//             // send package
-//             if let Err(_) = self.tx.send(msg).await {
-//                 if let Some(prefix) = self.debug_prefix {
-//                     println!("{}: Output channel failure.  The following data is being discarded:\n   {:?}", prefix, msg);
-//                 };    
-//             }
-//         }
-//     }    
-// }
 async fn boot_intcode_and_robot(prog: Vec<isize>) -> Result<HashMap<(isize,isize),PaintColor>,Error> {
     const BUFFER_SIZE: usize = 100;
     let (robot_tx, computer_rx) = channel::<isize>(BUFFER_SIZE);
@@ -316,9 +268,6 @@ async fn boot_intcode_and_robot(prog: Vec<isize>) -> Result<HashMap<(isize,isize
 fn main() -> Result<(),Error> {
     const PROG_MEM_SIZE: usize = 2000;
     let filename = "input.txt";
-    // let filename = "day09_example1.txt";
-    // let filename = "day09_example2.txt";
-    // let filename = "day09_example3.txt";
     let fd = File::open(filename).expect(&format!("Failure opening {}", filename));
     let buf = BufReader::new(fd);
     let mut prog_orig = Vec::new();
