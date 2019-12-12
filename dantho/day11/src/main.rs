@@ -237,6 +237,7 @@ async fn robot_run(mut rx: Receiver<isize>, mut tx: Sender<isize>) -> Result<Has
     let mut paint_map = HashMap::new(); // map of paint colors by coords
     let mut robot_location = (0,0); // starting location (arbitrary)
     let mut robot_orientation = North; // initial orientation
+    paint_map.entry(robot_location).or_insert(White); // Initialize starting location color;
     // Now process all messages
     loop {
         let this_panel_color = paint_map.entry(robot_location).or_insert(Black);
@@ -337,5 +338,27 @@ fn main() -> Result<(),Error> {
         Err(e) => return Err(e),
     };
     println!("Part 1: {} locations painted at least once", list_of_paint_color_by_location.len());
+    // Print out painting result:
+    let (min_x, min_y, max_x, max_y) = list_of_paint_color_by_location.iter().fold((0,0,0,0), |(min_x, min_y, max_x, max_y), ((x,y),_color)| {
+        (
+            if *x < min_x {*x} else { min_x },
+            if *y < min_y {*y} else { min_y },
+            if *x > max_x {*x} else { max_x },
+            if *y > max_y {*y} else { max_y },
+        )
+    });
+    for y in (min_y..=max_y).rev() {
+        for x in min_x..=max_x {
+            let ch = match list_of_paint_color_by_location.get(&(x,y)) {
+                Some(color) => match color {
+                    Black => ' ',
+                    White => '#',
+                },
+                None => ' ',
+            };
+            print!("{}", ch);
+        }
+        println!("");
+    }
     Ok(())
 }
