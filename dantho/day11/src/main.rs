@@ -2,16 +2,26 @@
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
+use std::convert::{TryFrom, TryInto};
+use std::fmt::Debug;
+use std::collections::HashMap;
 use futures::prelude::*;
 use futures::channel::mpsc::{channel,Sender,Receiver};
 use futures::executor::block_on;
 use futures::join;
-use std::convert::{TryFrom, TryInto};
+use PaintColor::*;
+use TurnDirection::*;
+use Orientation::*;
 
 #[derive(Debug)]
 enum Error {
     IllegalOpcode { code: isize },
+    IllegalColor { val: isize },
+    IllegalTurnDirection { val: isize },
+    RobotComms { msg: String },
+    ComputerComms { msg: String },
 }
+#[derive(Debug)]
 enum OpCode {
     Add = 1,
     Multiply = 2,
@@ -23,23 +33,6 @@ enum OpCode {
     CompareEQ = 8,
     AdjustBase = 9,
     Halt = 99,
-}
-impl OpCode {
-    fn pcount(&self) -> usize {
-        use OpCode::*;
-        match self {
-            Add => 3,
-            Multiply => 3,
-            Read => 1,
-            Write => 1,
-            BranchNE => 2,
-            BranchEQ => 2,
-            CompareLT => 3,
-            CompareEQ => 3,
-            AdjustBase => 1,
-            Halt => 0,
-        }
-    }
 }
 impl TryFrom<isize> for OpCode {
     type Error = Error;
@@ -99,7 +92,7 @@ async fn intcode_run(mut v: Vec<isize>, mut input: Receiver<isize>, mut output: 
                 assert_ne!(m1, 1);
                 v[ if m1 ==2 {p1+relative_base} else {p1} as usize] = match input.next().await {
                     Some(v) => v,
-                    None => panic!("Expecting input, but stream has terminated."),
+                    None => return Err(Error::ComputerComms{msg:"Expecting input, but stream has terminated.".to_string()}),
                 };
                 pc += 2;
             }
@@ -107,7 +100,7 @@ async fn intcode_run(mut v: Vec<isize>, mut input: Receiver<isize>, mut output: 
                 let p1 = v[pc + 1];
                 let v1 = match m1 { 0=>v[p1 as usize], 1=>p1, 2=>v[(p1+relative_base) as usize], _ => panic!("Bad Mode"),};
                 if let Err(_) = output.send(v1).await {
-                    panic!("Problem sending output data, has receiver been dropped?")
+                    return Err(Error::ComputerComms{msg:"Problem sending output data. Has receiver been dropped?".to_string()});
                 };
                 pc += 2;
             }
@@ -164,34 +157,163 @@ async fn intcode_run(mut v: Vec<isize>, mut input: Receiver<isize>, mut output: 
     }
     Ok(input) // Drop the input Receiver, this allow downstream fetching of values we are not going to process ('cause we're done)
 }
-async fn dump_output(mut rx: Receiver<isize>) {
-    // print all outputs
-    loop {
-        if let Some(v) = rx.next().await {
-            println!("Output: {}", v);
-        } else {
-            break;
+#[derive(Debug,Copy,Clone)]
+enum PaintColor {
+    Black = 0,
+    White = 1,
+}
+impl TryFrom<isize> for PaintColor {
+    type Error = Error;
+    fn try_from(val: isize) -> Result<Self, Self::Error> {
+        use PaintColor::*;
+        let color = match val {
+            n if n == Black as isize => Black,
+            n if n == White as isize => White,
+            _ => return Err(Error::IllegalColor { val }),
+        };
+        Ok(color)
+    }
+}
+#[derive(Debug,Copy,Clone)]
+enum TurnDirection {
+    Left = 0,
+    Right = 1,
+}
+impl TryFrom<isize> for TurnDirection {
+    type Error = Error;
+    fn try_from(val: isize) -> Result<Self, Self::Error> {
+        use TurnDirection::*;
+        let turn = match val {
+            n if n == Left as isize => Left,
+            n if n == Right as isize => Right,
+            _ => return Err(Error::IllegalTurnDirection { val }),
+        };
+        Ok(turn)
+    }
+}
+#[derive(Debug,Copy,Clone)]
+enum Orientation {
+    North,
+    South,
+    East,
+    West,
+}
+impl Orientation {
+    fn turn(&self, dir: TurnDirection) -> Orientation {
+        match dir {
+            Left => 
+            match *self {
+                North => West,
+                East => North,
+                South => East,
+                West => South,
+            },
+        Right => 
+            match *self {
+                North => East,
+                East => South,
+                South => West,
+                West => North,
+            },
         }
     }
-}
-async fn boot_intcode(prog: Vec<isize>, initial_input: isize) -> Result<(),Error> {
-    const BUFFER_SIZE: usize = 100;
-    let (mut input_tx, input_rx) = channel::<isize>(BUFFER_SIZE);
-    let (output_tx, output_rx) = channel::<isize>(BUFFER_SIZE);
-    // send initial input
-    input_tx.send(initial_input).await.unwrap();
-    // run computer
-    let computer = intcode_run(prog.clone(), input_rx, output_tx);
-    let outputter = dump_output(output_rx);
-    let (r,_) = join!(computer,outputter);
-    match r {
-        Ok(_) => Ok(()),
-        Err(e) => Err(e),
+    fn step(&self, coord: (isize,isize)) -> (isize,isize) {
+        let x = match self {
+            North => coord.0,
+            South => coord.0,
+            East => coord.0+1,
+            West => coord.0-1,
+        };
+        let y = match self {
+            East => coord.1,
+            West => coord.1,
+            North => coord.1+1,
+            South => coord.1-1,
+        };
+        (x,y)
     }
 }
-fn main() {
+async fn robot_run(mut rx: Receiver<isize>, mut tx: Sender<isize>) -> Result<HashMap<(isize,isize),PaintColor>,Error> {
+    let mut paint_map = HashMap::new(); // map of paint colors by coords
+    let mut robot_location = (0,0); // starting location (arbitrary)
+    let mut robot_orientation = North; // initial orientation
+    // Now process all messages
+    loop {
+        let this_panel_color = paint_map.entry(robot_location).or_insert(Black);
+        if let Err(_) = tx.send(*this_panel_color as isize).await {
+            return Err(Error::RobotComms { msg:format!("Robot output channel failure.  The following data is being discarded:\n   {:?}", this_panel_color) });
+        }
+        if let Some(color_v) = rx.next().await {
+            *this_panel_color = PaintColor::try_from(color_v)?;
+            println!("Robot: Painting {:?}", *this_panel_color);
+        } else { break; }
+        if let Some(turn_v) = rx.next().await {
+            robot_orientation = robot_orientation.turn(TurnDirection::try_from(turn_v)?);
+            robot_location = robot_orientation.step(robot_location);
+            println!("Robot: At {:?} facing {:?}", robot_location, robot_orientation);
+                // pass it through blindly...
+        } else { break; }
+    }
+    Ok(paint_map)
+}
+// pub struct ManInTheMiddle<'a, T: Debug> {
+//     original_tx: &'a mut Sender<T>,
+//     tx: Sender<T>,
+//     rx: Receiver<T>,
+//     debug_prefix: Option<String>,
+// }
+// impl<'a, T> ManInTheMiddle<'a, T> 
+//     where T: Debug {
+//     fn new(original_tx: &'a mut Sender<T>, debug_prefix: &str) -> Self {
+//         const BUFFER_SIZE: usize = 100;
+//         let (tx, rx) = channel::<T>(BUFFER_SIZE);
+//         let debug_prefix = if 0 == debug_prefix.len() {
+//             None
+//         } else {
+//             Some(debug_prefix.to_owned())
+//         };
+//         ManInTheMiddle { original_tx, tx, rx, debug_prefix }
+//     }
+//     pub fn tx_ptr(&'a mut self) -> &'a mut Sender<T> {
+//         &mut self.tx
+//     }
+//     async fn monitor(&mut self)
+//         where T: Debug {
+//         loop {
+//             // fetch package
+//             let msg: T = match self.rx.next().await {
+//                 Some(m) => m,
+//                 None => {
+//                     if let Some(prefix) = self.debug_prefix {
+//                         println!("{}: Terminating now due to input channel termination.", prefix);
+//                     };
+//                     return;
+//                 }
+//             };
+//             // [optional] monitor output
+//             if let Some(prefix) = self.debug_prefix {
+//                 println!("{}: {:?}", prefix, msg);
+//             };
+//             // send package
+//             if let Err(_) = self.tx.send(msg).await {
+//                 if let Some(prefix) = self.debug_prefix {
+//                     println!("{}: Output channel failure.  The following data is being discarded:\n   {:?}", prefix, msg);
+//                 };    
+//             }
+//         }
+//     }    
+// }
+async fn boot_intcode_and_robot(prog: Vec<isize>) -> Result<HashMap<(isize,isize),PaintColor>,Error> {
+    const BUFFER_SIZE: usize = 100;
+    let (robot_tx, computer_rx) = channel::<isize>(BUFFER_SIZE);
+    let (computer_tx, robot_rx) = channel::<isize>(BUFFER_SIZE);
+    let computer = intcode_run(prog.clone(), computer_rx, computer_tx);
+    let robot = robot_run(robot_rx, robot_tx);
+    let (_computer_return,robot_return) = join!(computer, robot); // , computer_snooper.monitor(), robot_snooper.monitor()
+    robot_return
+}
+fn main() -> Result<(),Error> {
     const PROG_MEM_SIZE: usize = 2000;
-    let initial_input: isize = 2;
     let filename = "input.txt";
     // let filename = "day09_example1.txt";
     // let filename = "day09_example2.txt";
@@ -209,7 +331,11 @@ fn main() {
     if prog_orig.len() < PROG_MEM_SIZE {
         let mut extra_space = vec![0; PROG_MEM_SIZE - prog_orig.len()];
         prog_orig.append(&mut extra_space);
-    }
-
-    let _out = block_on(boot_intcode(prog_orig.clone(), initial_input));
+    };
+    let list_of_paint_color_by_location = match block_on(boot_intcode_and_robot(prog_orig.clone())) {
+        Ok(list) => list,
+        Err(e) => return Err(e),
+    };
+    println!("Part 1: {} locations painted at least once", list_of_paint_color_by_location.len());
+    Ok(())
 }
