@@ -2,14 +2,15 @@
 use std::fmt::Debug;
 use std::cmp::Ordering::*;
 use std::collections::HashSet;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
+use std::hash::{Hash, Hasher, BuildHasherDefault};
+use hashers::fnv::FNV1aHasher32;
+//HashMap::with_hasher( BuildHasherDefault::<FxHasher>::default() );
 
 #[derive(Debug)]
 enum Error {
     IllegalOpcode { code: isize },
 }
-#[derive(Hash,Debug,Clone,Copy)]
+#[derive(Eq,PartialEq,Hash,Debug,Clone,Copy)]
 struct ThreeD {
     x: isize,
     y: isize,
@@ -17,7 +18,7 @@ struct ThreeD {
 }
 type Pos = ThreeD;
 type Vel = ThreeD;
-#[derive(Hash,Debug)]
+#[derive(Eq,PartialEq,Hash,Debug,Clone)]
 struct Moon {
     pos: Pos,
     vel: Vel,
@@ -45,11 +46,6 @@ impl Moon {
         self.pos.y += self.vel.y;
         self.pos.z += self.vel.z;
     }
-}
-fn calculate_hash<T: Hash>(t: &T) -> u64 {
-    let mut s = DefaultHasher::new();
-    t.hash(&mut s);
-    s.finish()
 }
 fn main() -> Result<(),Error> {
     let example1 = vec![
@@ -79,10 +75,10 @@ fn main() -> Result<(),Error> {
     for moon in &mut moons {
         println!("   {:?}", moon);
     }
-    let mut history: HashSet<u64> = HashSet::with_capacity(10000);
+    let mut history: HashSet<Vec<Moon>> = HashSet::with_capacity(10_000);
     for step in 0.. {
         // compare state to all prior states
-        if !history.insert(calculate_hash(&moons)) {
+        if !history.insert(moons.clone()) {
             println!("Part 2: Step #{} repeats history!", step);
             break;
         };
