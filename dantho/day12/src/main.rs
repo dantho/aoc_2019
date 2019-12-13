@@ -1,15 +1,7 @@
 /// Day03 code stolen from https://github.com/kodsnack/advent_of_code_2019/blob/master/tomasskare-rust/day2/src/main.rs
 use std::fmt::Debug;
 use std::cmp::Ordering::*;
-use std::collections::HashSet;
-use std::hash::{Hash, Hasher, BuildHasherDefault};
-use hashers::fnv::FNV1aHasher32;
-//HashMap::with_hasher( BuildHasherDefault::<FxHasher>::default() );
 
-#[derive(Debug)]
-enum Error {
-    IllegalOpcode { code: isize },
-}
 #[derive(Eq,PartialEq,Hash,Debug,Clone,Copy)]
 struct ThreeD {
     x: isize,
@@ -67,21 +59,15 @@ fn main() -> Result<(),Error> {
         Pos {x:-3,  y:-8, z:3  },
     ];
     let initial_pos = input;
-
     let initial_vel = vec![Vel {x:0, y:0, z:0}; 4];
-    let mut moons: Vec<_> = initial_pos.into_iter().zip(initial_vel.into_iter())
+    let mut moons: Vec<_> = initial_pos.clone().into_iter().zip(initial_vel.into_iter())
         .map(|(pos,vel)|{ Moon {pos,vel} }).collect();
     println!("Initial Moons: ", );
     for moon in &mut moons {
         println!("   {:?}", moon);
     }
-    let mut history: HashSet<Vec<Moon>> = HashSet::with_capacity(10_000);
-    for step in 0.. {
-        // compare state to all prior states
-        if !history.insert(moons.clone()) {
-            println!("Part 2: Step #{} repeats history!", step);
-            break;
-        };
+    let initial_state = moons.clone();
+    for step in 1.. {
         // apply gravity
         for _ in 0..moons.len() {
             let mut this = moons.pop().unwrap();
@@ -96,6 +82,11 @@ fn main() -> Result<(),Error> {
         for moon in &mut moons {
             moon.apply_velocity();
         }
+        // compare new state to all prior states
+        if moons == initial_state {
+            println!("Part 2: Step #{} is identical to initial state!", step);
+            break;
+        };
         // // debug print
         // println!("Moons:");
         // for moon in &mut moons {
