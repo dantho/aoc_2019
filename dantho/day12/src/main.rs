@@ -39,7 +39,7 @@ impl Moon {
         self.pos.z += self.vel.z;
     }
 }
-fn main() -> Result<(),Error> {
+fn main() {
     let example1 = vec![
         Pos {x:-1, y:0,   z:2 },
         Pos {x:2,  y:-10, z:-7},
@@ -100,5 +100,4 @@ fn main() -> Result<(),Error> {
     })
     .sum();
     println!("Part 1: Total Energy is {}", total_energy);
-    Ok(())
 }
