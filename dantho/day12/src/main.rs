@@ -1,12 +1,15 @@
 /// Day03 code stolen from https://github.com/kodsnack/advent_of_code_2019/blob/master/tomasskare-rust/day2/src/main.rs
 use std::fmt::Debug;
 use std::cmp::Ordering::*;
+use std::collections::HashSet;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 #[derive(Debug)]
 enum Error {
     IllegalOpcode { code: isize },
 }
-#[derive(Debug,Clone,Copy)]
+#[derive(Hash,Debug,Clone,Copy)]
 struct ThreeD {
     x: isize,
     y: isize,
@@ -14,7 +17,7 @@ struct ThreeD {
 }
 type Pos = ThreeD;
 type Vel = ThreeD;
-#[derive(Debug)]
+#[derive(Hash,Debug)]
 struct Moon {
     pos: Pos,
     vel: Vel,
@@ -43,13 +46,18 @@ impl Moon {
         self.pos.z += self.vel.z;
     }
 }
+fn calculate_hash<T: Hash>(t: &T) -> u64 {
+    let mut s = DefaultHasher::new();
+    t.hash(&mut s);
+    s.finish()
+}
 fn main() -> Result<(),Error> {
-    // let example1 = vec![
-    //     Pos {x:-1, y:0,   z:2 },
-    //     Pos {x:2,  y:-10, z:-7},
-    //     Pos {x:4,  y:-8,  z:8 },
-    //     Pos {x:3,  y:5,   z:-1},
-    // ];
+    let example1 = vec![
+        Pos {x:-1, y:0,   z:2 },
+        Pos {x:2,  y:-10, z:-7},
+        Pos {x:4,  y:-8,  z:8 },
+        Pos {x:3,  y:5,   z:-1},
+    ];
     // let example2 = vec![
     //     Pos {x:-1, y:0,   z:2 },
     //     Pos {x:2,  y:-10, z:-7},
@@ -71,7 +79,13 @@ fn main() -> Result<(),Error> {
     for moon in &mut moons {
         println!("   {:?}", moon);
     }
-    for _step in 0..1000 {
+    let mut history: HashSet<u64> = HashSet::with_capacity(10000);
+    for step in 0.. {
+        // compare state to all prior states
+        if !history.insert(calculate_hash(&moons)) {
+            println!("Part 2: Step #{} repeats history!", step);
+            break;
+        };
         // apply gravity
         for _ in 0..moons.len() {
             let mut this = moons.pop().unwrap();
