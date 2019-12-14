@@ -3,7 +3,7 @@ extern crate crossterm;
 
 use std::fs::File;
 use std::io::prelude::*;
-use std::io::{BufReader, stdout, Write};
+use std::io::BufReader;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Debug;
 use std::collections::BTreeMap;
@@ -13,7 +13,6 @@ use futures::executor::block_on;
 use futures::join;
 use TileID::*;
 use JoystickPosition::*;
-use crossterm::{execute, ExecutableCommand, style::{Attribute, Color, SetForegroundColor, SetBackgroundColor, ResetColor}};
 use std::time::Duration;
 
 #[derive(Debug)]
@@ -208,16 +207,12 @@ fn set_color(color:u8) -> String {
 }
 async fn arcade_run(mut rx: Receiver<isize>, mut tx: Sender<isize>) -> Result<isize,Error> {
     const CLS:&'static str = "\x1B[2J";
-    const PADDLE_Y: isize = 22;
-    const LEFT_EDGE: isize = 1;
-    const RIGHT_EDGE: isize = 38;
 
     let mut arcade_screen = BTreeMap::new(); // grid of tiles
     let mut score: isize = 0;
-    let mut ball_position: (isize,isize);
+    let mut ball_position: (isize,isize) = (0,0);
     let mut prior_ball_position: (isize,isize) = (0,0);
     let mut paddle_position: (isize,isize) = (0,0);
-    let mut paddle_hit_position: (isize,isize) = (0,0);
 
     // Do Not Print out WHOLE SCREEN on every character change: (too slow?)
     // print!("\u{001Bc}"); // clear screen, reset cursor
@@ -247,50 +242,23 @@ async fn arcade_run(mut rx: Receiver<isize>, mut tx: Sender<isize>) -> Result<is
             match tile_id {
                 Ball => {
                     ball_position = (y,x);
-                    if ball_position.0 > prior_ball_position.0 { // falling
-                        let ball_moving_right = ball_position.1>prior_ball_position.1; // 1 = right, -1 = left
-                        let height_above_paddle = PADDLE_Y-ball_position.0;
-                        paddle_hit_position = {
-                            let paddle_x = if ball_moving_right {
-                                let may_bounce = ball_position.1 + height_above_paddle;
-                                if may_bounce > RIGHT_EDGE {
-                                    2 * RIGHT_EDGE - may_bounce
-                                } else {
-                                    may_bounce
-                                }
-                            } else {
-                                let may_bounce = ball_position.1 - height_above_paddle;
-                                if may_bounce < LEFT_EDGE {
-                                    2 * LEFT_EDGE - may_bounce
-                                } else {
-                                    may_bounce
-                                }
-                            };
-                            (PADDLE_Y, paddle_x)
-                        };
-                    };
+                    // Control Joystick via Intcode Input
+                    let ball_is_moving_right = prior_ball_position.1 < ball_position.1;
                     prior_ball_position = ball_position;
-                },
-                HorizontalPaddle => {
-                    paddle_position = (y,x);
-                    // Control Joystick
-                    // Intcode Input
-                    let joystick_position = if paddle_position == paddle_hit_position {
+                    let target_x = ball_position.1 + if ball_is_moving_right {1} else {-1};
+                    let joystick_position = if paddle_position.1 == target_x {
                         Neutral
-                    } else if paddle_position.1 < paddle_hit_position.1 {
+                    } else if paddle_position.1 < target_x {
                         Right
                     } else {
                         Left
                     };
                     if let Err(_) = tx.send(joystick_position as isize).await {
                         return Err(Error::ArcadeComms { msg:format!("Arcade output channel failure.  The following data is being discarded:\n   {:?}", joystick_position) });
-                    }    
-                    if let Err(_) = tx.send(Neutral as isize).await {
-                        return Err(Error::ArcadeComms { msg:format!("Arcade output channel failure.  The following data is being discarded:\n   {:?}", joystick_position) });
-                    }    
-                    if let Err(_) = tx.send(Neutral as isize).await {
-                        return Err(Error::ArcadeComms { msg:format!("Arcade output channel failure.  The following data is being discarded:\n   {:?}", joystick_position) });
-                    }    
+                    }
+                },
+                HorizontalPaddle => {
+                    paddle_position = (y,x);
                 },
                 _ => (),
             }
