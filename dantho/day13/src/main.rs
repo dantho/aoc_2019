@@ -14,6 +14,7 @@ use futures::join;
 use TileID::*;
 use JoystickPosition::*;
 use crossterm::{execute, ExecutableCommand, style::{Attribute, Color, SetForegroundColor, SetBackgroundColor, ResetColor}};
+use std::time::Duration;
 
 #[derive(Debug)]
 enum Error {
@@ -192,23 +193,38 @@ impl TileID {
     fn to_char(&self) -> char {
         match *self {
             Empty => ' ',
-            Wall => '#',
-            Block => '⚀',
+            Wall => '■',
+            Block => '□',
             HorizontalPaddle => '═',
-            Ball => 'O',
+            Ball => '●',
         }
     }
 }
-async fn arcade_run(mut rx: Receiver<isize>, mut tx: Sender<isize>) -> Result<BTreeMap<(isize,isize),TileID>,Error> {
+fn cursor_pos(y:isize,x:isize) -> String {
+    format!("\x1b[{};{}H", y+1, x+1)
+}
+fn set_color(color:u8) -> String {
+    format!("\x1b[{}m", 41 + color)
+}
+async fn arcade_run(mut rx: Receiver<isize>, mut tx: Sender<isize>) -> Result<isize,Error> {
+    const CLS:&'static str = "\x1B[2J";
+    const PADDLE_Y: isize = 22;
+    const LEFT_EDGE: isize = 1;
+    const RIGHT_EDGE: isize = 38;
+
     let mut arcade_screen = BTreeMap::new(); // grid of tiles
-    let mut score: isize = -99999;
+    let mut score: isize = 0;
+    let mut ball_position: (isize,isize);
+    let mut prior_ball_position: (isize,isize) = (0,0);
+    let mut paddle_position: (isize,isize) = (0,0);
+    let mut paddle_hit_position: (isize,isize) = (0,0);
+
+    // Do Not Print out WHOLE SCREEN on every character change: (too slow?)
+    // print!("\u{001Bc}"); // clear screen, reset cursor
+    println!("{}", CLS); // clear screen, reset cursor
+
     // process all messages
     loop {
-        // Intcode Input
-        let joystick_position = Neutral;
-        if let Err(_) = tx.send(joystick_position as isize).await {
-            return Err(Error::ArcadeComms { msg:format!("arcade output channel failure.  The following data is being discarded:\n   {:?}", joystick_position) });
-        }
         // Intcode Output
         let x = match rx.next().await {
             Some(x) => x,
@@ -218,8 +234,8 @@ async fn arcade_run(mut rx: Receiver<isize>, mut tx: Sender<isize>) -> Result<BT
             Some(y) => y,
             None => break,
         };
-        if (-1,0) == (x,y) {
-            let score = match rx.next().await {
+        if (0,-1) == (y,x) {
+            score = match rx.next().await {
                 Some(score) => score,
                 None => break,
             };    
@@ -228,34 +244,97 @@ async fn arcade_run(mut rx: Receiver<isize>, mut tx: Sender<isize>) -> Result<BT
                 Some(tile_val) => TileID::try_from(tile_val)?,
                 None => break,
             };
-            if let Some(prior_tile) = arcade_screen.insert((y,x),tile_id) {};    
-        }
-
-        // Print out WHOLE SCREEN on every character change: (too slow?)
-        print!("\u{001Bc}"); // clear screen, reset cursor
-        let (min_x, min_y, max_x, max_y) = arcade_screen.iter().fold((0,0,0,0), |(min_x, min_y, max_x, max_y), ((x,y),_tile_id)| {
-            (
-                if *x < min_x {*x} else { min_x },
-                if *y < min_y {*y} else { min_y },
-                if *x > max_x {*x} else { max_x },
-                if *y > max_y {*y} else { max_y },
-            )
-        });
-        for y in (min_y..=max_y) {
-            for x in min_x..=max_x {
-                let ch = match arcade_screen.get(&(y,x)) {
-                    Some(tile) => tile.to_char(),
-                    None => ' ',
-                };
-                print!("{}", ch);
+            match tile_id {
+                Ball => {
+                    ball_position = (y,x);
+                    if ball_position.0 > prior_ball_position.0 { // falling
+                        let ball_moving_right = ball_position.1>prior_ball_position.1; // 1 = right, -1 = left
+                        let height_above_paddle = PADDLE_Y-ball_position.0;
+                        paddle_hit_position = {
+                            let paddle_x = if ball_moving_right {
+                                let may_bounce = ball_position.1 + height_above_paddle;
+                                if may_bounce > RIGHT_EDGE {
+                                    2 * RIGHT_EDGE - may_bounce
+                                } else {
+                                    may_bounce
+                                }
+                            } else {
+                                let may_bounce = ball_position.1 - height_above_paddle;
+                                if may_bounce < LEFT_EDGE {
+                                    2 * LEFT_EDGE - may_bounce
+                                } else {
+                                    may_bounce
+                                }
+                            };
+                            (PADDLE_Y, paddle_x)
+                        };
+                    };
+                    prior_ball_position = ball_position;
+                },
+                HorizontalPaddle => {
+                    paddle_position = (y,x);
+                    // Control Joystick
+                    // Intcode Input
+                    let joystick_position = if paddle_position == paddle_hit_position {
+                        Neutral
+                    } else if paddle_position.1 < paddle_hit_position.1 {
+                        Right
+                    } else {
+                        Left
+                    };
+                    if let Err(_) = tx.send(joystick_position as isize).await {
+                        return Err(Error::ArcadeComms { msg:format!("Arcade output channel failure.  The following data is being discarded:\n   {:?}", joystick_position) });
+                    }    
+                    if let Err(_) = tx.send(Neutral as isize).await {
+                        return Err(Error::ArcadeComms { msg:format!("Arcade output channel failure.  The following data is being discarded:\n   {:?}", joystick_position) });
+                    }    
+                    if let Err(_) = tx.send(Neutral as isize).await {
+                        return Err(Error::ArcadeComms { msg:format!("Arcade output channel failure.  The following data is being discarded:\n   {:?}", joystick_position) });
+                    }    
+                },
+                _ => (),
             }
-            println!("");
+            if let Some(_prior_tile) = arcade_screen.insert((y,x),tile_id) {};    
         }
-        println!("\nScore: {}\n\n", score);
+        if arcade_screen.len() >= 960 {
+            let (min_y, min_x, max_y, max_x) = arcade_screen.iter().fold((0,0,0,0), |(min_y, min_x, max_y, max_x), ((y,x),_tile_id)| {
+                (
+                    if *x < min_x {*x} else { min_x },
+                    if *y < min_y {*y} else { min_y },
+                    if *x > max_x {*x} else { max_x },
+                    if *y > max_y {*y} else { max_y },
+                )
+            });
+            for ((y,x), tile) in &arcade_screen {
+                let ch = tile.to_char();
+                print!("{}{}", cursor_pos(*y, *x), ch);
+            }
+            // for y in min_y..=max_y {
+            //     for x in min_x..=max_x {
+            //         let ch = match arcade_screen.get(&(y,x)) {
+            //             Some(tile) => tile.to_char(),
+            //             None => ' ',
+            //         };
+            //         print!("{}", ch);
+            //     }
+            //     println!("");
+            // }
+            println!("{}", cursor_pos(23,0));
+            println!("\nScore: {}\n\n", score);
+            println!("Screen contains {} unique characters.", arcade_screen.len());
+            println!("With {} of them Empty.", arcade_screen.iter().filter(|((_,_),tile)|{tile==&&Empty}).count());
+            println!("And  {} of them Wall.", arcade_screen.iter().filter(|((_,_),tile)|{tile==&&Wall}).count());
+            println!("And  {} of them Blocks.", arcade_screen.iter().filter(|((_,_),tile)|{tile==&&Block}).count());
+            println!("Only {} is a Ball.", arcade_screen.iter().filter(|((_,_),tile)|{tile==&&Ball}).count());
+            println!("And  {} is a Paddle.", arcade_screen.iter().filter(|((_,_),tile)|{tile==&&HorizontalPaddle}).count());
+            println!("Screen goes from {}, {} to {}, {}", min_x, min_y, max_x, max_y);
+            let delay = Duration::from_millis(10);
+            std::thread::sleep(delay);
+        }
     }
-    Ok(arcade_screen)
+    Ok(score)
 }
-async fn boot_intcode_and_arcade(prog: Vec<isize>) -> Result<BTreeMap<(isize,isize),TileID>,Error> {
+async fn boot_intcode_and_arcade(prog: Vec<isize>) -> Result<isize,Error> {
     const BUFFER_SIZE: usize = 100;
     let (arcade_tx, computer_rx) = channel::<isize>(BUFFER_SIZE);
     let (computer_tx, arcade_rx) = channel::<isize>(BUFFER_SIZE);
@@ -263,8 +342,8 @@ async fn boot_intcode_and_arcade(prog: Vec<isize>) -> Result<BTreeMap<(isize,isi
     hacked_program[0] = 2;
     let computer = intcode_run(hacked_program, computer_rx, computer_tx);
     let arcade = arcade_run(arcade_rx, arcade_tx);
-    let (_computer_return,screen_return) = join!(computer, arcade); // , computer_snooper.monitor(), arcade_snooper.monitor()
-    screen_return
+    let (_computer_return,final_score) = join!(computer, arcade); // , computer_snooper.monitor(), arcade_snooper.monitor()
+    final_score
 }
 fn main() -> Result<(),Error> {
     const PROG_MEM_SIZE: usize = 3000;
@@ -283,10 +362,10 @@ fn main() -> Result<(),Error> {
         let mut extra_space = vec![0; PROG_MEM_SIZE - prog_orig.len()];
         prog_orig.append(&mut extra_space);
     };
-    let arcade_screen = match block_on(boot_intcode_and_arcade(prog_orig.clone())) {
-        Ok(list) => list,
+    let final_score = match block_on(boot_intcode_and_arcade(prog_orig.clone())) {
+        Ok(score) => score,
         Err(e) => return Err(e),
     };
-    println!("Part 1: {} Block tile count", arcade_screen.iter().fold(0,|blocks, ((_,_),t)| blocks + if *t == Block {1} else {0}) );
+    println!("Part 2: Final score is {}", final_score );
     Ok(())
 }
