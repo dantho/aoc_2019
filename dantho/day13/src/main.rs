@@ -1,9 +1,10 @@
 /// https://adventofcode.com/2019/day/13#part2
 extern crate crossterm;
+const ESC_CLS:&'static str = "\x1B[2J";
 
 use std::fs::File;
 use std::io::prelude::*;
-use std::io::BufReader;
+use std::io::{BufReader, Write, stdout};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Debug;
 use std::collections::BTreeMap;
@@ -199,14 +200,25 @@ impl TileID {
         }
     }
 }
-fn cursor_pos(y:isize,x:isize) -> String {
-    format!("\x1b[{};{}H", y+1, x+1)
+fn print(s: &str) {
+    print!("{}",s);
+    stdout().flush().unwrap();
 }
-fn set_color(color:u8) -> String {
-    format!("\x1b[{}m", 41 + color)
+fn print_ch(ch: char) {
+    print!("{}",ch);
+    stdout().flush().unwrap();
+}
+fn set_cursor_pos(y:isize,x:isize) {
+    print!("\x1B[{};{}H", y+1, x+1);
+    stdout().flush().unwrap();
+}
+fn set_color(color:u8) {
+    print(
+        &format!("\x1B[{}m", 41 + color)
+    );
 }
 async fn arcade_run(mut rx: Receiver<isize>, mut tx: Sender<isize>) -> Result<isize,Error> {
-    const CLS:&'static str = "\x1B[2J";
+    const COLLISION_ROW: isize = 23;
 
     let mut arcade_screen = BTreeMap::new(); // grid of tiles
     let mut score: isize = 0;
@@ -216,7 +228,7 @@ async fn arcade_run(mut rx: Receiver<isize>, mut tx: Sender<isize>) -> Result<is
 
     // Do Not Print out WHOLE SCREEN on every character change: (too slow?)
     // print!("\u{001Bc}"); // clear screen, reset cursor
-    println!("{}", CLS); // clear screen, reset cursor
+    print(ESC_CLS); // clear screen, reset cursor
 
     // process all messages
     loop {
@@ -231,7 +243,11 @@ async fn arcade_run(mut rx: Receiver<isize>, mut tx: Sender<isize>) -> Result<is
         };
         if (0,-1) == (y,x) {
             score = match rx.next().await {
-                Some(score) => score,
+                Some(score) => {
+                    set_cursor_pos(24,0);
+                    println!("\nScore: {}\n\n", score);
+                    score
+                },
                 None => break,
             };    
         } else {
@@ -239,16 +255,15 @@ async fn arcade_run(mut rx: Receiver<isize>, mut tx: Sender<isize>) -> Result<is
                 Some(tile_val) => TileID::try_from(tile_val)?,
                 None => break,
             };
+            set_cursor_pos(y,x);
+            print_ch(tile_id.to_char());
             match tile_id {
                 Ball => {
                     ball_position = (y,x);
                     // Control Joystick via Intcode Input
-                    let ball_is_moving_right = prior_ball_position.1 < ball_position.1;
-                    prior_ball_position = ball_position;
-                    let target_x = ball_position.1 + if ball_is_moving_right {1} else {-1};
-                    let joystick_position = if paddle_position.1 == target_x {
+                    let joystick_position = if paddle_position.1 == ball_position.1 {
                         Neutral
-                    } else if paddle_position.1 < target_x {
+                    } else if paddle_position.1 < ball_position.1 {
                         Right
                     } else {
                         Left
@@ -264,46 +279,49 @@ async fn arcade_run(mut rx: Receiver<isize>, mut tx: Sender<isize>) -> Result<is
             }
             if let Some(_prior_tile) = arcade_screen.insert((y,x),tile_id) {};    
         }
-        if arcade_screen.len() >= 960 {
-            let (min_y, min_x, max_y, max_x) = arcade_screen.iter().fold((0,0,0,0), |(min_y, min_x, max_y, max_x), ((y,x),_tile_id)| {
-                (
-                    if *x < min_x {*x} else { min_x },
-                    if *y < min_y {*y} else { min_y },
-                    if *x > max_x {*x} else { max_x },
-                    if *y > max_y {*y} else { max_y },
-                )
-            });
-            for ((y,x), tile) in &arcade_screen {
-                let ch = tile.to_char();
-                print!("{}{}", cursor_pos(*y, *x), ch);
-            }
-            // for y in min_y..=max_y {
-            //     for x in min_x..=max_x {
-            //         let ch = match arcade_screen.get(&(y,x)) {
-            //             Some(tile) => tile.to_char(),
-            //             None => ' ',
-            //         };
-            //         print!("{}", ch);
-            //     }
-            //     println!("");
-            // }
-            println!("{}", cursor_pos(23,0));
-            println!("\nScore: {}\n\n", score);
-            println!("Screen contains {} unique characters.", arcade_screen.len());
-            println!("With {} of them Empty.", arcade_screen.iter().filter(|((_,_),tile)|{tile==&&Empty}).count());
-            println!("And  {} of them Wall.", arcade_screen.iter().filter(|((_,_),tile)|{tile==&&Wall}).count());
-            println!("And  {} of them Blocks.", arcade_screen.iter().filter(|((_,_),tile)|{tile==&&Block}).count());
-            println!("Only {} is a Ball.", arcade_screen.iter().filter(|((_,_),tile)|{tile==&&Ball}).count());
-            println!("And  {} is a Paddle.", arcade_screen.iter().filter(|((_,_),tile)|{tile==&&HorizontalPaddle}).count());
-            println!("Screen goes from {}, {} to {}, {}", min_x, min_y, max_x, max_y);
-            let delay = Duration::from_millis(10);
-            std::thread::sleep(delay);
-        }
+        // // DEBUG PRINT WHOLE SCREEN
+        // print(ESC_CLS); // clear screen, reset cursor
+        // if arcade_screen.len() >= 960 {
+        //     let (min_y, min_x, max_y, max_x) = arcade_screen.iter().fold((0,0,0,0), |(min_y, min_x, max_y, max_x), ((y,x),_tile_id)| {
+        //         (
+        //             if *x < min_x {*x} else { min_x },
+        //             if *y < min_y {*y} else { min_y },
+        //             if *x > max_x {*x} else { max_x },
+        //             if *y > max_y {*y} else { max_y },
+        //         )
+        //     });
+        //     for ((y,x), tile) in &arcade_screen {
+        //         let ch = tile.to_char();
+        //         set_cursor_pos(*y, *x);
+        //         print_ch(ch);
+        //     }
+        //     // for y in min_y..=max_y {
+        //     //     for x in min_x..=max_x {
+        //     //         let ch = match arcade_screen.get(&(y,x)) {
+        //     //             Some(tile) => tile.to_char(),
+        //     //             None => ' ',
+        //     //         };
+        //     //         print!("{}", ch);
+        //     //     }
+        //     //     println!("");
+        //     // }
+        //     set_cursor_pos(24,0);
+        //     println!("\nScore: {}\n\n", score);
+        //     println!("Screen contains {} unique characters.", arcade_screen.len());
+        //     println!("With {} of them Empty.", arcade_screen.iter().filter(|((_,_),tile)|{tile==&&Empty}).count());
+        //     println!("And  {} of them Wall.", arcade_screen.iter().filter(|((_,_),tile)|{tile==&&Wall}).count());
+        //     println!("And  {} of them Blocks.", arcade_screen.iter().filter(|((_,_),tile)|{tile==&&Block}).count());
+        //     println!("Only {} is a Ball.", arcade_screen.iter().filter(|((_,_),tile)|{tile==&&Ball}).count());
+        //     println!("And  {} is a Paddle.", arcade_screen.iter().filter(|((_,_),tile)|{tile==&&HorizontalPaddle}).count());
+        //     println!("Screen goes from {}, {} to {}, {}", min_x, min_y, max_x, max_y);
+        //     let delay = Duration::from_millis(0);
+        //     std::thread::sleep(delay);
+        // }
     }
     Ok(score)
 }
 async fn boot_intcode_and_arcade(prog: Vec<isize>) -> Result<isize,Error> {
-    const BUFFER_SIZE: usize = 100;
+    const BUFFER_SIZE: usize = 10;
     let (arcade_tx, computer_rx) = channel::<isize>(BUFFER_SIZE);
     let (computer_tx, arcade_rx) = channel::<isize>(BUFFER_SIZE);
     let mut hacked_program = prog.clone();
