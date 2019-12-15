@@ -1,92 +1,38 @@
 use std::convert::{TryFrom, TryInto};
-use std::collections::{HashMap, HashSet};
-use std::cmp::Ordering::*;
+use std::collections::HashMap;
 
 fn main() -> Result<(),Error> {
     let mut ff = FuelFactory::new()?;
     // What is the minimum amount of ORE required to produce exactly 1 FUEL?
-    let ore_per_fuel = ff.ore_required(1, "FUEL")?;
-    println!("     1 Fuel requires {} ORE", ore_per_fuel);
-    println!("    So, 1000 Fuel is {}", ore_per_fuel*1000);
-    
-    let mut ff = FuelFactory::new()?;
-    let ore_per_1000fuel = 
-        (0..1000).into_iter().fold(0,|total_ore, _|{total_ore + ff.ore_required(1, "FUEL").unwrap()});
-    println!(" 1000 Fuel2 requires {} ORE", ore_per_1000fuel);
-    println!("Inventory usage saved {} ORE", ore_per_fuel*1000 - ore_per_1000fuel);
-    // let ore_per_1000_fuel = ff.ore_required(999, "FUEL")? + ore_per_fuel;
-    // println!("        ORE required to produce 1_000 FUEL is {}", ore_per_1000_fuel);
-    // let ore_equivalence_of_excess_inventory = ff.inventory.clone().iter()
-    //     .fold(0,|ore, (symbol, qty)| {ore + FuelFactory::new().unwrap().ore_required(*qty, symbol).unwrap()});
-    // println!("        But also produces inventory equivalent to {} additional ORE", ore_equivalence_of_excess_inventory);
-    // println!("Inventory after 1_000 FUEL is produced:\n{:?}", ff.inventory);    
-    // let big_fuel_w_no_inventory_management = 1_000_000_000_000u64 / ore_per_fuel;
-    // println!("Part 2: Therefore 1 Trillion ORE would produce {} FUEL, with wasted inventory!", big_fuel_w_no_inventory_management);
-    // let big_fuel_from_inventory = big_fuel_w_no_inventory_management*ore_equivalence_of_excess_inventory/ore_per_fuel;
-    // println!("         So maybe an additional {} FUEL? For a total of {}", big_fuel_from_inventory, big_fuel_from_inventory+big_fuel_w_no_inventory_management);
+    let ore_per_fuel = ff.ore_required(1.0, "FUEL")?;
+    println!("1 FUEL requires {} ORE", ore_per_fuel);
+    println!("1 Trillion ORE can make {} FUEL", 1e12/ore_per_fuel);    
     Ok(())
 }
 struct FuelFactory {
     reactions: HashMap<&'static str, Reaction>,
-    inventory: HashMap<&'static str, u64>,
 }
 impl FuelFactory {
     fn new() -> Result<Self,Error> {
-        let inventory: HashMap<&'static str, u64> = HashMap::new();
-        let input = EX3;
+        let input = INPUT;
         let _unused = (EX1, EX2, EX3, EX4, EX5, INPUT);
         let reactions: Vec<Reaction> = input.into_iter().map(|s|
             (*s).try_into() 
         ).collect::<Result<Vec<_>,_>>()?;
         let reactions = reactions.into_iter().map(|r|{(r.output.symbol,r)}).collect::<HashMap<_,_>>();    
-        Ok(FuelFactory { reactions, inventory })
+        Ok(FuelFactory { reactions })
     }
-    fn ore_required(&mut self, how_many: u64, to_make: &'static str) -> Result<u64,Error> {
+    fn ore_required(&mut self, how_many: f64, to_make: &'static str) -> Result<f64,Error> {
         // println!("Making {} {}:", how_many, to_make);
         // END RECURSION
         if to_make == "ORE" {
             return Ok(how_many);
         };
-        // Use up inventory before making more
-        let how_many = match self.inventory.get_mut(to_make) {
-            Some(qty_in_inventory) => {
-                match (*qty_in_inventory).cmp(&how_many) {
-                    Equal => {
-                        *qty_in_inventory = 0;
-                        0
-                    }
-                    Greater => {
-                        *qty_in_inventory -= how_many;
-                        0
-                    }
-                    Less => {
-                        let tmp = *qty_in_inventory;
-                        *qty_in_inventory = 0;
-                        how_many - tmp
-                    }
-                }
-            },
-            None => how_many,
-        };
-        // Produced from inventory, no ORE required
-        if how_many == 0 {
-            return Ok(0);
-        }
-        // Now make more
+        // How many (fractional) reactions are required?
         let this_reaction = self.reactions.get(to_make).ok_or(Error::UnknownChem{s:to_make})?;
-        let reaction_count = if 0 == how_many % this_reaction.output.qty {
-            how_many / this_reaction.output.qty 
-        } else {
-            how_many / this_reaction.output.qty + 1
-        };
-        // place [anticipated] excess production into inventory
-        let excess = reaction_count*this_reaction.output.qty-how_many;
-        if excess > 0 {
-            let bin = self.inventory.entry(to_make).or_default();
-            *bin += excess;
-        }
-        // produce more
-        let mut total_ore = 0;
+        let reaction_count = how_many / this_reaction.output.qty;
+        // Produce more by recursing down all paths to ORE
+        let mut total_ore = 0.0f64;
         for input in this_reaction.inputs.clone() {
             total_ore += self.ore_required(input.qty*reaction_count, input.symbol)?;
         }
@@ -102,7 +48,7 @@ enum Error {
 #[derive(Debug,Clone,Copy)]
 struct Chem {
     symbol: &'static str,
-    qty: u64,
+    qty: f64,
 }
 impl TryFrom<&'static str> for Chem {
     type Error = Error;
