@@ -196,7 +196,7 @@ impl TileID {
             Wall => '■',
             Block => '□',
             HorizontalPaddle => '═',
-            Ball => '●',
+            Ball => '☻', // '●',
         }
     }
 }
@@ -218,13 +218,13 @@ fn set_color(color:u8) {
     );
 }
 async fn arcade_run(mut rx: Receiver<isize>, mut tx: Sender<isize>) -> Result<isize,Error> {
-    const COLLISION_ROW: isize = 23;
-
+    const BALL_COLOR: u8 = 50;
+     
     let mut arcade_screen = BTreeMap::new(); // grid of tiles
     let mut score: isize = 0;
-    let mut ball_position: (isize,isize) = (0,0);
-    let mut prior_ball_position: (isize,isize) = (0,0);
+    let mut ball_position: (isize,isize);
     let mut paddle_position: (isize,isize) = (0,0);
+    let mut block_color: u8 = 48;
 
     // Do Not Print out WHOLE SCREEN on every character change: (too slow?)
     // print!("\u{001Bc}"); // clear screen, reset cursor
@@ -255,8 +255,17 @@ async fn arcade_run(mut rx: Receiver<isize>, mut tx: Sender<isize>) -> Result<is
                 Some(tile_val) => TileID::try_from(tile_val)?,
                 None => break,
             };
+            if tile_id == Block {
+                set_color(block_color);
+                block_color += 1;
+                if block_color > 56 {block_color = 48;}
+            }
+            if tile_id == Ball {
+                set_color(BALL_COLOR);
+            }
             set_cursor_pos(y,x);
             print_ch(tile_id.to_char());
+            set_color(56); // Bright White?
             match tile_id {
                 Ball => {
                     ball_position = (y,x);
