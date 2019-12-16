@@ -1,7 +1,7 @@
 /// https://adventofcode.com/2019/day/13#part2
 const ESC_CLS:&'static str = "\x1B[2J";
-const ESC_CURSOR_ON:&'static str = "\x1B[2J";
-const ESC_CURSOR_OFF:&'static str = "\x1B[2J";
+const ESC_CURSOR_ON:&'static str = "\x1B[?25h";
+const ESC_CURSOR_OFF:&'static str = "\x1B[?25l";
 
 use std::fs::File;
 use std::io::prelude::*;
@@ -162,6 +162,9 @@ impl WorldMap {
     }
     fn redraw_screen(&self) -> Result<(),Error> {
         print(ESC_CLS); // clear screen, reset cursor
+        print(ESC_CURSOR_OFF); // Turn OFF cursor
+        // print(ESC_CURSOR_ON); // Turn ON cursor
+        
         for (pos, _) in &self.data {
             self.draw_position(*pos)?;
         }
@@ -250,8 +253,8 @@ impl Droid {
         let mut explored_world = WorldMap::new();
         let droid_position: (isize,isize) = (0,0);
         let oxygen_position_if_known: Option<(isize,isize)> = None;  // Unknown as yet
-        explored_world.data.insert(droid_position, MapData::Droid);
-        Droid { explored_world, droid_position, oxygen_position_if_known, rx, tx }  
+        explored_world.modify_data(droid_position, MapData::Droid);
+        Droid { explored_world, droid_position, oxygen_position_if_known, rx, tx }
     }
     async fn explore(&mut self) -> Result<(),Error> {
         for dir in &[North, South, West, East] {
@@ -305,8 +308,7 @@ impl Droid {
 }
 async fn droid_run(rx: Receiver<isize>, tx: Sender<isize>) -> Result<u32,Error> {
     let mut droid = Droid::new(rx, tx);
-    print(ESC_CLS);
-    print(ESC_CURSOR_OFF);
+    droid.explored_world.redraw_screen();
     // start the big loop
     loop {
         droid.explore().await?;
