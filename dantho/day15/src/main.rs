@@ -37,15 +37,16 @@ fn main() -> Result<(),Error> {
         let mut extra_space = vec![0; PROG_MEM_SIZE - prog_orig.len()];
         prog_orig.append(&mut extra_space);
     };
-    let fewest_moves = match block_on(boot_intcode_and_droid(prog_orig.clone())) {
-        Ok(score) => score,
+    let (fewest_moves, most_minutes) = match block_on(boot_intcode_and_droid(prog_orig.clone())) {
+        Ok(result) => result,
         Err(e) => return Err(e),
     };
     println!("");
     println!("Part 1: Fewest moves to find the oxygen system is {}", fewest_moves );
+    println!("Part 2: Minutes to fill every corner with oxygen is {}", most_minutes );
     Ok(())
 }
-async fn boot_intcode_and_droid(prog: Vec<isize>) -> Result<usize,Error> {
+async fn boot_intcode_and_droid(prog: Vec<isize>) -> Result<(usize,usize),Error> {
     const BUFFER_SIZE: usize = 10;
     let (droid_tx, computer_rx) = channel::<isize>(BUFFER_SIZE);
     let (computer_tx, droid_rx) = channel::<isize>(BUFFER_SIZE);
@@ -56,7 +57,7 @@ async fn boot_intcode_and_droid(prog: Vec<isize>) -> Result<usize,Error> {
     let (_computer_return,droid_response) = join!(computer, droid); // , computer_snooper.monitor(), droid_snooper.monitor()
     droid_response
 }
-async fn droid_run(rx: Receiver<isize>, tx: Sender<isize>) -> Result<usize,Error> {
+async fn droid_run(rx: Receiver<isize>, tx: Sender<isize>) -> Result<(usize,usize),Error> {
     let mut droid = Droid::new(rx, tx);
     droid.explored_world.redraw_screen()?;
     droid.explore().await?;
@@ -77,9 +78,19 @@ async fn droid_run(rx: Receiver<isize>, tx: Sender<isize>) -> Result<usize,Error
     set_cursor_pos(lower_right_corner.0+1,0);
     let distance_to_oxygen_sensor: usize = match distance_map.get(&droid.oxygen_position_if_known.unwrap()) {
         Some(d) => *d,
-        None => return Err(Error::MapAssertFail {msg: format!("Can't find oxygen sensor at {:?} !", droid.oxygen_position_if_known)}),
+        None => return Err(Error::MapAssertFail {msg: format!("Can't find oxygen sensor at {:?} !", droid.oxygen_position_if_known.unwrap())}),
     };
-    Ok(distance_to_oxygen_sensor)
+
+    // reset distance map
+    for (_,dist) in &mut distance_map {
+        *dist = std::usize::MAX;
+    }
+
+    map_distance(&mut distance_map, droid.oxygen_position_if_known.unwrap(), 0)?;
+    let minutes_to_fill_with_oxygen = distance_map.iter().fold(0,|most_minutes, ((_,_), minutes)| {
+        if *minutes > most_minutes {*minutes} else {most_minutes}
+    });
+    Ok((distance_to_oxygen_sensor, minutes_to_fill_with_oxygen))
 }
 fn map_distance(map: &mut BTreeMap<(isize,isize), usize>, loc: (isize,isize), distance: usize) -> Result<(),Error> {
     let this_loc = match map.get_mut(&loc) {
