@@ -1,7 +1,7 @@
-/// https://adventofcode.com/2019/day/13#part2
-const ESC_CLS:&'static str = "\x1B[2J";
-const ESC_CURSOR_ON:&'static str = "\x1B[?25h";
-const ESC_CURSOR_OFF:&'static str = "\x1B[?25l";
+/// https://adventofcode.com/2019/day/15
+const ESC_CLS: &'static str = "\x1B[2J";
+// const ESC_CURSOR_ON: &'static str = "\x1B[?25h";
+const ESC_CURSOR_OFF: &'static str = "\x1B[?25l";
 
 use std::fs::File;
 use std::io::prelude::*;
@@ -13,6 +13,7 @@ use futures::prelude::*;
 use futures::channel::mpsc::{channel,Sender,Receiver};
 use futures::executor::block_on;
 use futures::join;
+use futures::future::BoxFuture; // https://rust-lang.github.io/async-book/07_workarounds/05_recursion.html
 use DroidStatus::*;
 use DroidMovement::*;
 use MapData::*;
@@ -40,9 +41,34 @@ fn main() -> Result<(),Error> {
         Ok(score) => score,
         Err(e) => return Err(e),
     };
+    println!("");
     println!("Part 1: Fewest moves to find the oxygen system is {}", fewest_moves );
     Ok(())
 }
+async fn boot_intcode_and_droid(prog: Vec<isize>) -> Result<u32,Error> {
+    const BUFFER_SIZE: usize = 10;
+    let (droid_tx, computer_rx) = channel::<isize>(BUFFER_SIZE);
+    let (computer_tx, droid_rx) = channel::<isize>(BUFFER_SIZE);
+    let hacked_program = prog.clone();
+    // No hacks
+    let computer = intcode_run(hacked_program, computer_rx, computer_tx);
+    let droid = droid_run(droid_rx, droid_tx);
+    let (_computer_return,droid_response) = join!(computer, droid); // , computer_snooper.monitor(), droid_snooper.monitor()
+    droid_response
+}
+async fn droid_run(rx: Receiver<isize>, tx: Sender<isize>) -> Result<u32,Error> {
+    let mut droid = Droid::new(rx, tx);
+    droid.explored_world.redraw_screen()?;
+    droid.explore().await?;
+
+    // Now that the map is fully known (by the droid)
+    // Remap, replacing the known empty locations with distances from droid starting with 0 under droid.
+
+    let lower_right_corner = droid.explored_world.lower_right_corner_on_screen();
+    set_cursor_pos(lower_right_corner.0+1,0);
+    Ok(99)
+}
+
 #[derive(Debug)]
 enum Error {
     IllegalOpcode {code: isize},
@@ -61,12 +87,13 @@ enum MapData {
 }
 // See https://jrgraphix.net/r/Unicode/2700-27BF for Dingbats in unicode
 impl MapData {
-    fn to_char(&self) -> char {
+    fn to_str(&self) -> &'static str {
+        print("\x1B[56m"); // SIDE EFFECT - print white control chars (default color)
         match *self {
-            Wall => '■',
-            Empty => '.',
-            OxygenSystem => '☻', // '●',
-            Droid => 'D',
+            Wall => "■",
+            Empty => ".",
+            OxygenSystem => "☻",
+            Droid => "D",
         }
     }
 }
@@ -100,6 +127,14 @@ impl DroidMovement {
             East => (loc.0, loc.1+1),
         }
     }
+    fn reverse(&self) -> Self {
+        match self {
+            North => South,
+            South => North,
+            West => East,
+            East => West,            
+        }
+    }
 }
 #[derive(Debug,Copy,Clone,Eq,PartialEq)]
 enum DroidStatus {
@@ -130,6 +165,9 @@ impl WorldMap {
         let data = BTreeMap::new();
         WorldMap {origin, data}
     }
+    fn is_known(&self, pos: &(isize,isize)) -> bool {
+        self.data.contains_key(pos)
+    }
     fn modify_data(&mut self, position: (isize,isize), data: MapData) -> Result<(),Error> {
         self.update_origin(position)?;
         match self.data.get_mut(&position) {
@@ -152,95 +190,70 @@ impl WorldMap {
         if pos.0 < self.origin.0 || pos.1 < self.origin.1 {
             return Err(MapOriginWrong {
                 msg: format!("Map pos {:?} is lower than origin at {:?}", pos, self.origin)})}
-        set_cursor_pos(pos.0 - self.origin.0, pos.1 - self.origin.0);
-        let ch = match self.data.get(&pos) {
-            None => ' ',
-            Some(data) => data.to_char(),
+        set_cursor_pos(pos.0 - self.origin.0, pos.1 - self.origin.1);
+        let map_item = match self.data.get(&pos) {
+            None => " ",
+            Some(data) => data.to_str(),
         };
-        print_ch(ch);
+        print(map_item);
         Ok(())
     }
     fn redraw_screen(&self) -> Result<(),Error> {
         print(ESC_CLS); // clear screen, reset cursor
         print(ESC_CURSOR_OFF); // Turn OFF cursor
         // print(ESC_CURSOR_ON); // Turn ON cursor
-        
         for (pos, _) in &self.data {
             self.draw_position(*pos)?;
         }
         Ok(())
-        // // DEBUG PRINT WHOLE SCREEN
-        // print(ESC_CLS); // clear screen, reset cursor
-        // if droid_screen.len() >= 960 {
-        //     let (min_y, min_x, max_y, max_x) = droid_screen.iter().fold((0,0,0,0), |(min_y, min_x, max_y, max_x), ((y,x),_tile_id)| {
-        //         (
-        //             if *x < min_x {*x} else { min_x },
-        //             if *y < min_y {*y} else { min_y },
-        //             if *x > max_x {*x} else { max_x },
-        //             if *y > max_y {*y} else { max_y },
-        //         )
-        //     });
-        //     for ((y,x), tile) in &droid_screen {
-        //         let ch = tile.to_char();
-        //         set_cursor_pos(*y, *x);
-        //         print_ch(ch);
-        //     }
-        //     // for y in min_y..=max_y {
-        //     //     for x in min_x..=max_x {
-        //     //         let ch = match droid_screen.get(&(y,x)) {
-        //     //             Some(tile) => tile.to_char(),
-        //     //             None => ' ',
-        //     //         };
-        //     //         print!("{}", ch);
-        //     //     }
-        //     //     println!("");
-        //     // }
-        //     set_cursor_pos(24,0);
-        //     println!("\nScore: {}\n\n", score);
-        //     println!("Screen contains {} unique characters.", droid_screen.len());
-        //     println!("With {} of them Empty.", droid_screen.iter().filter(|((_,_),tile)|{tile==&&Empty}).count());
-        //     println!("And  {} of them Wall.", droid_screen.iter().filter(|((_,_),tile)|{tile==&&Wall}).count());
-        //     println!("And  {} of them Blocks.", droid_screen.iter().filter(|((_,_),tile)|{tile==&&Block}).count());
-        //     println!("Only {} is a Ball.", droid_screen.iter().filter(|((_,_),tile)|{tile==&&Ball}).count());
-        //     println!("And  {} is a Paddle.", droid_screen.iter().filter(|((_,_),tile)|{tile==&&HorizontalPaddle}).count());
-        //     println!("Screen goes from {}, {} to {}, {}", min_x, min_y, max_x, max_y);
-        //     let delay = Duration::from_millis(0);
-        //     std::thread::sleep(delay);
-        // }
     }
     fn update_origin(&mut self, position:(isize,isize)) -> Result<(),Error> {
         let mut redraw_required = false;
         if position.0 < self.origin.0 {
-            self.origin.0 -= 5;
+            self.origin = (self.origin.0-5, self.origin.1);
             redraw_required = true;
         }
         if position.1 < self.origin.1 {
-            self.origin.1 -= 5;
+            self.origin = (self.origin.0, self.origin.1-5);
             redraw_required = true;
         }
         if redraw_required {
             self.redraw_screen()?;
+            set_cursor_pos(20, 20);
         }
         Ok(())
+    }
+    fn lower_right_corner(&self) -> (isize,isize) {
+        self.data.iter().fold((std::isize::MIN,std::isize::MIN),|(max_y,max_x), ((y,x),_)| {
+            (
+                if *y > max_y {*y} else {max_y},
+                if *x > max_x {*x} else {max_x}
+            )
+        })
+    }
+    fn lower_right_corner_on_screen(&self) -> (isize,isize) {
+        let signed_location = self.lower_right_corner();
+        let on_screen = (signed_location.0-self.origin.0, signed_location.1-self.origin.1);
+        on_screen
     }
 }
 fn print(s: &str) {
     print!("{}",s);
     stdout().flush().unwrap();
 }
-fn print_ch(ch: char) {
-    print!("{}",ch);
-    stdout().flush().unwrap();
-}
+// fn print_ch(ch: char) {
+//     print!("{}",ch);
+//     stdout().flush().unwrap();
+// }
 fn set_cursor_pos(y:isize,x:isize) {
     print!("\x1B[{};{}H", y+1, x+1);
     stdout().flush().unwrap();
 }
-fn set_color(color:u8) {
-    print(
-        &format!("\x1B[{}m", 41 + color)
-    );
-}
+// fn set_color(color:u8) {
+//     print(
+//         &format!("\x1B[{}m", 41 + color)
+//     );
+// }
 struct Droid {
     explored_world: WorldMap,
     droid_position: (isize,isize),
@@ -253,79 +266,78 @@ impl Droid {
         let mut explored_world = WorldMap::new();
         let droid_position: (isize,isize) = (0,0);
         let oxygen_position_if_known: Option<(isize,isize)> = None;  // Unknown as yet
-        explored_world.modify_data(droid_position, MapData::Droid);
+        explored_world.data.insert(droid_position, MapData::Droid);
         Droid { explored_world, droid_position, oxygen_position_if_known, rx, tx }
     }
-    async fn explore(&mut self) -> Result<(),Error> {
-        for dir in &[North, South, West, East] {
-            let move_dir = *dir;
-            // Slow things down for debug or visualization
-            let delay = Duration::from_millis(1000);
-            std::thread::sleep(delay);
-            // Send a movement command to Droid's Intcode Computer
-            if let Err(_) = self.tx.send(move_dir as isize).await {
-                return Err(Error::DroidComms { msg:format!("Droid output channel failure.  The following data is being discarded:\n   {:?}", move_dir) });
-            }
-            // And fetch a response
-            let status = match self.rx.next().await {
-                Some(st) => DroidStatus::try_from(st)?,
-                None => break,
-            };
-            // Interpret response
-            match status {
-                HitWall => {
-                    // Add new data to map; Or validate known (& identical) data in map
-                    // Do not change location
-                    // Print new data (for new location only)
-                    let wall_position = move_dir.move_from(self.droid_position);
-                    self.explored_world.modify_data(wall_position, Wall)?;
-                },
-                Moved => {
-                    // clear up old droid location
-                    self.explored_world.modify_data(self.droid_position, Empty)?; // probably Empty
-                    if let Some(ox) = self.oxygen_position_if_known {
-                        if ox == self.droid_position {
-                            self.explored_world.modify_data(self.droid_position, OxygenSystem)?;
-                        }
+    // explore() is a recursive algorithm (4-way) to visit all UNVISITED squares to determine the contents.
+    // A previously visited square of any kind (preemptively) ENDS the (leg of the 4-way) recursion.
+    // See https://rust-lang.github.io/async-book/07_workarounds/05_recursion.html 
+    //    for explanation of fn syntax and async block usage
+    fn explore<'a>(&'a mut self) -> BoxFuture<'a, Result<(),Error>> {
+        async move {
+            // Explore cardinal directions, returning to center each time
+            for dir in &[North, South, West, East] {
+                let move_dir = *dir;
+                if !self.explored_world.is_known(&move_dir.move_from(self.droid_position)) {
+                    if self.move_droid(move_dir).await? {
+                        // Then explore there
+                        self.explore().await?;
+                        // and move back to continue more local exploration
+                        self.move_droid(move_dir.reverse()).await?;
                     }
-                    // move droid
-                    self.droid_position = move_dir.move_from(self.droid_position);
-                    self.explored_world.modify_data(self.droid_position, Droid)?;
-                },
-                OxygenSystemDetected => {
-                    // clear up old droid location
-                    self.explored_world.modify_data(self.droid_position, Empty)?; // definitely Empty
-                    // move droid
-                    self.droid_position = move_dir.move_from(self.droid_position);
-                    self.explored_world.modify_data(self.droid_position, Droid)?; // Or Droid_Oxygen combo?
-                    // and udate crucial information
-                    self.oxygen_position_if_known = Some(self.droid_position);
-                },
+                } 
             }
+            Ok(())
+        }.boxed()
+    }
+    async fn move_droid(&mut self, move_dir: DroidMovement) -> Result<bool,Error> {
+        let move_succeeded: bool;
+        // Slow things down for debug or visualization
+        // ESPECIALLY at start
+        let delay = Duration::from_millis(0);
+        std::thread::sleep(delay);
+        // Send a movement command to Droid's Intcode Computer
+        if let Err(_) = self.tx.send(move_dir as isize).await {
+            return Err(Error::DroidComms { msg:format!("Droid output channel failure.  The following data is being discarded:\n   {:?}", move_dir) });
         }
-        Ok(())
+        // And fetch a response
+        let status = match self.rx.next().await {
+            Some(st) => DroidStatus::try_from(st)?,
+            None => return Err(DroidComms {msg: "Incode computer stopped transmitting.".to_string()}),
+        };
+        // Interpret response
+        match status {
+            HitWall => {
+                move_succeeded = false;
+                let wall_position = move_dir.move_from(self.droid_position);
+                self.explored_world.modify_data(wall_position, Wall)?;
+            },
+            Moved => {
+                move_succeeded = true;
+                // clear up old droid location
+                self.explored_world.modify_data(self.droid_position, Empty)?; // Empty unless...
+                if let Some(ox) = self.oxygen_position_if_known {
+                    if ox == self.droid_position {
+                        self.explored_world.modify_data(self.droid_position, OxygenSystem)?;
+                    }
+                }
+                // move droid
+                self.droid_position = move_dir.move_from(self.droid_position);
+                self.explored_world.modify_data(self.droid_position, Droid)?;
+            },
+            OxygenSystemDetected => {
+                move_succeeded = true;
+                // clear up old droid location
+                self.explored_world.modify_data(self.droid_position, Empty)?; // definitely Empty
+                // move droid
+                self.droid_position = move_dir.move_from(self.droid_position);
+                self.explored_world.modify_data(self.droid_position, Droid)?; // Or Droid_Oxygen combo?
+                // and udate crucial information
+                self.oxygen_position_if_known = Some(self.droid_position);
+            },
+        }
+        Ok(move_succeeded)
     }
-}
-async fn droid_run(rx: Receiver<isize>, tx: Sender<isize>) -> Result<u32,Error> {
-    let mut droid = Droid::new(rx, tx);
-    droid.explored_world.redraw_screen();
-    // start the big loop
-    loop {
-        droid.explore().await?;
-    }
-    // print(ESC_CURSOR_ON);
-    // Ok(0)
-}
-async fn boot_intcode_and_droid(prog: Vec<isize>) -> Result<u32,Error> {
-    const BUFFER_SIZE: usize = 10;
-    let (droid_tx, computer_rx) = channel::<isize>(BUFFER_SIZE);
-    let (computer_tx, droid_rx) = channel::<isize>(BUFFER_SIZE);
-    let hacked_program = prog.clone();
-    // No hacks
-    let computer = intcode_run(hacked_program, computer_rx, computer_tx);
-    let droid = droid_run(droid_rx, droid_tx);
-    let (_computer_return,droid_response) = join!(computer, droid); // , computer_snooper.monitor(), droid_snooper.monitor()
-    droid_response
 }
 
 // Intcode Computer
