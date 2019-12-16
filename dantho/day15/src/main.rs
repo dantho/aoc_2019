@@ -45,7 +45,7 @@ fn main() -> Result<(),Error> {
     println!("Part 1: Fewest moves to find the oxygen system is {}", fewest_moves );
     Ok(())
 }
-async fn boot_intcode_and_droid(prog: Vec<isize>) -> Result<u32,Error> {
+async fn boot_intcode_and_droid(prog: Vec<isize>) -> Result<usize,Error> {
     const BUFFER_SIZE: usize = 10;
     let (droid_tx, computer_rx) = channel::<isize>(BUFFER_SIZE);
     let (computer_tx, droid_rx) = channel::<isize>(BUFFER_SIZE);
@@ -56,19 +56,47 @@ async fn boot_intcode_and_droid(prog: Vec<isize>) -> Result<u32,Error> {
     let (_computer_return,droid_response) = join!(computer, droid); // , computer_snooper.monitor(), droid_snooper.monitor()
     droid_response
 }
-async fn droid_run(rx: Receiver<isize>, tx: Sender<isize>) -> Result<u32,Error> {
+async fn droid_run(rx: Receiver<isize>, tx: Sender<isize>) -> Result<usize,Error> {
     let mut droid = Droid::new(rx, tx);
     droid.explored_world.redraw_screen()?;
     droid.explore().await?;
 
     // Now that the map is fully known (by the droid)
     // Remap, replacing the known empty locations with distances from droid starting with 0 under droid.
+    let mut distance_map: BTreeMap<_,_> = droid.explored_world.data.iter().filter_map(|(loc,map_data)| {
+        let default_distance = std::usize::MAX;
+        match map_data {
+            Empty|Droid|OxygenSystem => Some((*loc, default_distance)),
+            Wall => None,
+        }
+    }).collect();
+
+    map_distance(&mut distance_map, (0, 0), 0)?;
 
     let lower_right_corner = droid.explored_world.lower_right_corner_on_screen();
     set_cursor_pos(lower_right_corner.0+1,0);
-    Ok(99)
+    let distance_to_oxygen_sensor: usize = match distance_map.get(&droid.oxygen_position_if_known.unwrap()) {
+        Some(d) => *d,
+        None => return Err(Error::MapAssertFail {msg: format!("Can't find oxygen sensor at {:?} !", droid.oxygen_position_if_known)}),
+    };
+    Ok(distance_to_oxygen_sensor)
 }
-
+fn map_distance(map: &mut BTreeMap<(isize,isize), usize>, loc: (isize,isize), distance: usize) -> Result<(),Error> {
+    let this_loc = match map.get_mut(&loc) {
+        Some(dist) => dist,
+        None => return Ok(()), // END RECURSION (Wall or unknown found)
+    };
+    if *this_loc <= distance {
+        return Ok(()) // END RECURSION (crossed [equiv or superior] path)
+    }
+    *this_loc = distance; // Set present location
+    // Recurse into cardinal directions
+    map_distance(map, (loc.0-1,loc.1), distance+1)?; // North
+    map_distance(map, (loc.0+1,loc.1), distance+1)?; // South
+    map_distance(map, (loc.0,loc.1-1), distance+1)?; // West
+    map_distance(map, (loc.0,loc.1+1), distance+1)?; // East
+    Ok(())
+}
 #[derive(Debug)]
 enum Error {
     IllegalOpcode {code: isize},
