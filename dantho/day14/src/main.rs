@@ -2,11 +2,13 @@ use std::convert::{TryFrom, TryInto};
 use std::collections::HashMap;
 
 fn main() -> Result<(),Error> {
-    let mut ff = FuelFactory::new()?;
-    // What is the minimum amount of ORE required to produce exactly 1 FUEL?
-    let ore_per_fuel = ff.ore_required(1.0, "FUEL")?;
-    println!("1 FUEL requires {} ORE", ore_per_fuel);
-    println!("1 Trillion ORE can make {} FUEL", 1e12/ore_per_fuel);    
+    for i in 0..1 {
+        let mut ff = FuelFactory::new()?;
+        // What is the minimum amount of ORE required to produce exactly 1 FUEL?
+        let ore_per_fuel = ff.ore_required(1.0, "FUEL")?;
+        println!("1 FUEL requires {} ORE", ore_per_fuel);
+        println!("1 Trillion ORE can make {} FUEL", 1e12/ore_per_fuel);
+    }    
     Ok(())
 }
 struct FuelFactory {
