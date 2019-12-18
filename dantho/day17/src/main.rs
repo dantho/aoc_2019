@@ -8,7 +8,7 @@ use std::io::prelude::*;
 use std::io::{BufReader, Write, stdout};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Debug;
-use std::collections::{BTreeMap, HashSet, HashMap};
+use std::collections::{BTreeMap, HashSet};
 use futures::prelude::*;
 use futures::channel::mpsc::{channel,Sender,Receiver};
 use futures::executor::block_on;
@@ -208,7 +208,7 @@ struct WorldMap {
 }
 impl WorldMap {
     fn new() -> Self {
-        let origin = (-5,-5);
+        let origin = (-2,-2);
         let data = BTreeMap::new();
         WorldMap {origin, data}
     }
@@ -381,8 +381,18 @@ impl Robot {
         Ok(intersections)
     }
     async fn execute_path(&mut self, main: &str, a: &str, b: &str, c: &str) -> Result<isize,Error> {
+        let mut response;
         for sub_program in &[main, a, b, c] {
-            println!("Sending sub-program");
+            response = String::new();
+            loop {
+                // Fetch prompt
+                match self.rx.next().await {
+                    Some(10) => {break;},
+                    Some(ans) => response.push(ans as u8 as char),
+                    None => return Err(RobotComms {msg: "Incode computer stopped transmitting.".to_string()}),
+                };
+            }
+            println!("After prompt '{}', sending sub-program: {:?}", response, sub_program);
             let ascii_stream: Vec<_> = sub_program.chars().map(|ch|ch as isize).chain((10..).take(1)).collect();
             for i in ascii_stream {
                 // Send a program data to Robot's Intcode Computer
@@ -390,31 +400,37 @@ impl Robot {
                     return Err(Error::RobotComms { msg:format!("Robot output channel failure.  The following data is being discarded:\n   {:?}", i) });
                 }
             }
-            loop {
-                // Fetch confirmation
-                let arbitrary = match self.rx.next().await {
-                    Some(ans) => ans,
-                    None => return Err(RobotComms {msg: "Incode computer stopped transmitting.".to_string()}),
-                };
-                if arbitrary == 10 {
-                    break;
-                } else {
-                    println!("Got arb response: {}", arbitrary);
-                }
-            }
-                // Fetch confirmation
-            let arbitrary = match self.rx.next().await {
-                Some(ans) => ans,
+        }
+        response = String::new();
+        loop {
+            // Fetch next prompt
+            match self.rx.next().await {
+                Some(10) => {break;},
+                Some(ans) => response.push(ans as u8 as char),
                 None => return Err(RobotComms {msg: "Incode computer stopped transmitting.".to_string()}),
             };
-            println!("Got arb response: {}", arbitrary);
         }
+        println!("After debug prompt '{}' sending \"n\\n\"", response);
         // Send a y/n answer to Robot's Intcode Computer
         if let Err(_) = self.tx.send('n' as isize).await {
             return Err(Error::RobotComms { msg:format!("Robot output channel failure.  The following data is being discarded:\n   {:?}", 'n') });
         }
-        println!("Waiting on dust response");
-        // Fetch the response of total dust collected...
+        if let Err(_) = self.tx.send(10).await {
+            return Err(Error::RobotComms { msg:format!("Robot output channel failure.  The following data is being discarded:\n   {:?}", 'n') });
+        }
+        response = String::new();
+        loop {
+            // Fetch next prompt
+            match self.rx.next().await {
+                Some(10) => {break;},
+                Some(ans) => response.push(ans as u8 as char),
+                None => return Err(RobotComms {msg: "Incode computer stopped transmitting.".to_string()}),
+            };
+        }
+        println!("After empty response '{}', fetching camera view", response);
+        self.download_camera_view().await?;
+        self.camera_view.redraw_screen()?;
+        println!("Fetching Dust Collected");
         let dust_collected = match self.rx.next().await {
             Some(ans) => ans,
             None => return Err(RobotComms {msg: "Incode computer stopped transmitting.".to_string()}),
@@ -447,7 +463,7 @@ impl Robot {
             .filter_map(|((y,_),(old_y,old_x))| {
                 if *y == *old_y + 1 {Some((*old_y,*old_x))} else {None}
             }).collect();
-        println!("Row Endpoints: {:?}", row_endpoints);
+        // println!("Row Endpoints: {:?}", row_endpoints);
         if row_endpoints.iter().map(|(y,_)|{y})
             .skip(1).zip(row_endpoints.iter().map(|(y,_)|{y}))
             .fold(false,|b,(y,old_y)|{b || *y != *old_y + 1}) {
