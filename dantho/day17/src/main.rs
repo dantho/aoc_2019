@@ -8,7 +8,7 @@ use std::io::prelude::*;
 use std::io::{BufReader, Write, stdout};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Debug;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashSet, HashMap};
 use futures::prelude::*;
 use futures::channel::mpsc::{channel,Sender,Receiver};
 use futures::executor::block_on;
@@ -37,58 +37,177 @@ fn main() -> Result<(),Error> {
         let mut extra_space = vec![0; PROG_MEM_SIZE - prog_orig.len()];
         prog_orig.append(&mut extra_space);
     };
-    let sum_of_alignment_params = match block_on(boot_intcode_and_robot(prog_orig.clone())) {
+    let (part1,part2) = match block_on(boot_intcode_and_robot(prog_orig.clone())) {
         Ok(result) => result,
         Err(e) => return Err(e),
     };
     println!("");
-    println!("Part 1: Sum of alignment parameters is {}", sum_of_alignment_params);
+    println!("Part 1: Sum of alignment parameters is {}", part1);
+    println!("Part 2: Dust collected {}", part2);
     // println!("Part 2: xxx is {}", xxx);
     Ok(())
 }
-async fn boot_intcode_and_robot(prog: Vec<isize>) -> Result<isize,Error> {
+async fn boot_intcode_and_robot(prog: Vec<isize>) -> Result<(isize,isize),Error> {
     const BUFFER_SIZE: usize = 10;
     let (robot_tx, computer_rx) = channel::<isize>(BUFFER_SIZE);
     let (computer_tx, robot_rx) = channel::<isize>(BUFFER_SIZE);
-    let hacked_program = prog.clone();
-    // No hacks
+    let unhacked_program = prog.clone();
+    // No hacks for Part 1
+    let computer = intcode_run(unhacked_program, computer_rx, computer_tx);
+    let robot = robot_run_part1(robot_rx, robot_tx);
+    let (_computer_return,robot_response_part1) = join!(computer, robot); // , computer_snooper.monitor(), robot_snooper.monitor()
+    // Part 2 **************
+    let (robot_tx, computer_rx) = channel::<isize>(BUFFER_SIZE);
+    let (computer_tx, robot_rx) = channel::<isize>(BUFFER_SIZE);
+    // Hacks required for Part 2
+    let mut hacked_program = prog.clone();
+    hacked_program[0] = 2;
     let computer = intcode_run(hacked_program, computer_rx, computer_tx);
-    let robot = robot_run(robot_rx, robot_tx);
-    let (_computer_return,robot_response) = join!(computer, robot); // , computer_snooper.monitor(), robot_snooper.monitor()
-    robot_response
+    let robot = robot_run_part2(robot_rx, robot_tx);
+    let (_computer_return,robot_response_part2) = join!(computer, robot); // , computer_snooper.monitor(), robot_snooper.monitor()
+
+    Ok((robot_response_part1.unwrap(), robot_response_part2.unwrap()))
 }
-async fn robot_run(rx: Receiver<isize>, tx: Sender<isize>) -> Result<isize,Error> {
+async fn robot_run_part1(rx: Receiver<isize>, tx: Sender<isize>) -> Result<isize,Error> {
     let mut robot = Robot::new(rx, tx);
     robot.download_camera_view().await?;
     robot.camera_view.redraw_screen()?;
     let intersections = robot.find_intersections()?;
-
     let sum_of_alignment_params = intersections.iter()
         .fold(0,|sum, (y,x)| {
             sum + *y**x
         });
     // println!("\nIntersections: {:?}", intersections);
-
     Ok(sum_of_alignment_params)
+}
+async fn robot_run_part2(rx: Receiver<isize>, tx: Sender<isize>) -> Result<isize,Error> {
+    let mut robot = Robot::new(rx, tx);
+    robot.download_camera_view().await?;
+    // robot.camera_view.redraw_screen()?;
+    let _path_to_end = robot.find_path_to_end()?;
+    // println!("path_to_end: {}", path_to_end);
+    let mut path_to_end_flat = path_to_end.split(",").map(|s|{s.chars()}).flatten().collect::<String>();
+    println!("path_to_end: (sans comma) {}", path_to_end_flat); // L4L6L8L12L8R12L12L8R12L12L4L6L8L12L8R12L12R12L6L6L8L4L6L8L12R12L6L6L8L8R12L12R12L6L6L8
+    path_to_end_flat = path_to_end_flat.split("L4L6L8L12").map(|s|{s.chars().chain(",".chars())}).flatten().collect::<String>();//3
+    path_to_end_flat = path_to_end_flat.split("R12L6L6L8").map(|s|{s.chars().chain(",".chars())}).flatten().collect::<String>();//3
+    path_to_end_flat = path_to_end_flat.split("L8R12L12").map(|s|{s.chars().chain(",".chars())}).flatten().collect::<String>();//4
+    println!("path_to_end: (sans comma) {}", path_to_end_flat); // L4L6L8L12L8R12L12L8R12L12L4L6L8L12L8R12L12R12L6L6L8L4L6L8L12R12L6L6L8L8R12L12R12L6L6L8
+    let path_to_end = path_to_end_flat.chars().map(|c| {
+        if c == 'R' || c == 'L' {format!(",{},",c)} else {c.to_string()}
+    }).collect::<String>();
+    let path_to_end: String = path_to_end.chars().skip(1).collect();
+    let turn_move_pairs: Vec::<_> = path_to_end
+        .split(",").step_by(2)
+        .zip(path_to_end.split(",").skip(1).step_by(2))
+        .collect();
+    let mut turn_move_hash: HashMap::<_,u8> = HashMap::new();
+    for pair in turn_move_pairs {
+        let mut pair_string = String::new();
+        pair_string.push_str(pair.0);
+        pair_string.push_str(pair.1);
+        *turn_move_hash.entry(pair_string).or_default() += 1;
+    }
+    println!("Pairs: {:?}", turn_move_hash);
 
-    // // Now that the full view is known (by the robot)
-    // let lower_right_corner = robot.camera_view.lower_right_corner_on_screen();
-    // set_cursor_pos(lower_right_corner.0+1,0);
-    // let distance_to_oxygen_sensor: usize = match distance_map.get(&robot.oxygen_position_if_known.unwrap()) {
-    //     Some(d) => *d,
-    //     None => return Err(Error::MapAssertFail {msg: format!("Can't find oxygen sensor at {:?} !", robot.oxygen_position_if_known.unwrap())}),
-    // };
+    let turn_move_quads: Vec::<_> = path_to_end
+        .split(",").step_by(4)
+        .zip(path_to_end.split(",").skip(1).step_by(4))
+        .zip(path_to_end.split(",").skip(2).step_by(4))
+        .zip(path_to_end.split(",").skip(3).step_by(4))
+        .map(|(((a,b),c),d)| {(a,b,c,d)})
+        .collect();
+    let mut turn_move_hash: HashMap::<_,u8> = HashMap::new();
+    for quad in turn_move_quads {
+        let mut quad_string = String::new();
+        quad_string.push_str(quad.0);
+        quad_string.push_str(quad.1);
+        quad_string.push_str(quad.2);
+        quad_string.push_str(quad.3);
+        *turn_move_hash.entry(quad_string).or_default() += 1;
+    }
+    println!("Quads: {:?}", turn_move_hash);
+    let turn_move_quads: Vec::<_> = path_to_end
+        .split(",").skip(0+2).step_by(4)
+        .zip(path_to_end.split(",").skip(1+2).step_by(4))
+        .zip(path_to_end.split(",").skip(2+2).step_by(4))
+        .zip(path_to_end.split(",").skip(3+2).step_by(4))
+        .map(|(((a,b),c),d)| {(a,b,c,d)})
+        .collect();
+    let mut turn_move_hash: HashMap::<_,u8> = HashMap::new();
+    for quad in turn_move_quads {
+        let mut quad_string = String::new();
+        quad_string.push_str(quad.0);
+        quad_string.push_str(quad.1);
+        quad_string.push_str(quad.2);
+        quad_string.push_str(quad.3);
+        *turn_move_hash.entry(quad_string).or_default() += 1;
+    }
+    println!("Alt Quads: {:?}", turn_move_hash);
+    let turn_move_sexs: Vec::<_> = path_to_end
+        .split(",").step_by(6)
+        .zip(path_to_end.split(",").skip(1).step_by(6))
+        .zip(path_to_end.split(",").skip(2).step_by(6))
+        .zip(path_to_end.split(",").skip(3).step_by(6))
+        .zip(path_to_end.split(",").skip(4).step_by(6))
+        .zip(path_to_end.split(",").skip(5).step_by(6))
+        .map(|(((((a,b),c),d),e),f)| {(a,b,c,d,e,f)})
+        .collect();
+    let mut turn_move_hash: HashMap::<_,u8> = HashMap::new();
+    for sex in turn_move_sexs {
+        let mut sex_string = String::new();
+        sex_string.push_str(sex.0);
+        sex_string.push_str(sex.1);
+        sex_string.push_str(sex.2);
+        sex_string.push_str(sex.3);
+        sex_string.push_str(sex.4);
+        sex_string.push_str(sex.5);
+        *turn_move_hash.entry(sex_string).or_default() += 1;
+    }
+    println!("Sexes: {:?}", turn_move_hash);
+    let turn_move_sexs: Vec::<_> = path_to_end
+        .split(",").skip(0+2).step_by(6)
+        .zip(path_to_end.split(",").skip(1+2).step_by(6))
+        .zip(path_to_end.split(",").skip(2+2).step_by(6))
+        .zip(path_to_end.split(",").skip(3+2).step_by(6))
+        .zip(path_to_end.split(",").skip(4+2).step_by(6))
+        .zip(path_to_end.split(",").skip(5+2).step_by(6))
+        .map(|(((((a,b),c),d),e),f)| {(a,b,c,d,e,f)})
+        .collect();
+    let mut turn_move_hash: HashMap::<_,u8> = HashMap::new();
+    for sex in turn_move_sexs {
+        let mut sex_string = String::new();
+        sex_string.push_str(sex.0);
+        sex_string.push_str(sex.1);
+        sex_string.push_str(sex.2);
+        sex_string.push_str(sex.3);
+        sex_string.push_str(sex.4);
+        sex_string.push_str(sex.5);
+        *turn_move_hash.entry(sex_string).or_default() += 1;
+    }
+    println!("Alt Sexes: {:?}", turn_move_hash);
+    let turn_move_sexs: Vec::<_> = path_to_end
+        .split(",").skip(0+4).step_by(6)
+        .zip(path_to_end.split(",").skip(1+4).step_by(6))
+        .zip(path_to_end.split(",").skip(2+4).step_by(6))
+        .zip(path_to_end.split(",").skip(3+4).step_by(6))
+        .zip(path_to_end.split(",").skip(4+4).step_by(6))
+        .zip(path_to_end.split(",").skip(5+4).step_by(6))
+        .map(|(((((a,b),c),d),e),f)| {(a,b,c,d,e,f)})
+        .collect();
+    let mut turn_move_hash: HashMap::<_,u8> = HashMap::new();
+    for sex in turn_move_sexs {
+        let mut sex_string = String::new();
+        sex_string.push_str(sex.0);
+        sex_string.push_str(sex.1);
+        sex_string.push_str(sex.2);
+        sex_string.push_str(sex.3);
+        sex_string.push_str(sex.4);
+        sex_string.push_str(sex.5);
+        *turn_move_hash.entry(sex_string).or_default() += 1;
+    }
+    println!("Alt Alt Sexes: {:?}", turn_move_hash);
 
-    // // reset distance map
-    // for (_,dist) in &mut distance_map {
-    //     *dist = std::usize::MAX;
-    // }
-
-    // map_distance(&mut distance_map, robot.oxygen_position_if_known.unwrap(), 0)?;
-    // let minutes_to_fill_with_oxygen = distance_map.iter().fold(0,|most_minutes, ((_,_), minutes)| {
-    //     if *minutes > most_minutes {*minutes} else {most_minutes}
-    // });
-    // Ok((distance_to_oxygen_sensor, minutes_to_fill_with_oxygen))
+    Ok(-1)
 }
 #[derive(Debug)]
 enum Error {
@@ -98,6 +217,7 @@ enum Error {
     ComputerComms {msg: String},
     MapAssertFail {msg: String},
     MapOriginWrong {msg: String},
+    ImpossibleTurn {msg: String},
     CameraNotFound,
 }
 #[derive(Debug,Copy,Clone,Eq,PartialEq)]
@@ -151,9 +271,9 @@ impl TryFrom<isize> for MapData {
 #[derive(Debug,Copy,Clone,Eq,PartialEq)]
 enum RobotMovement {
     North=1,
-    South=2,
-    West=3,
-    East=4,
+    East=2,
+    South=3,
+    West=4,
 }
 impl TryFrom<isize> for RobotMovement {
     type Error = Error;
@@ -176,6 +296,15 @@ impl RobotMovement {
             South => (loc.0+1, loc.1),
             West => (loc.0, loc.1-1),
             East => (loc.0, loc.1+1),
+        }
+    }
+    fn turn_required(&self, new_dir: RobotMovement) -> Result<char,Error> {
+        let this = *self as isize;
+        let next = new_dir as isize;
+        match next-this {
+            1|-3 => Ok('R'),
+            -1|3 => Ok('L'),
+            _ => Err(ImpossibleTurn {msg: format!("Can't turn from {:?} to {:?} !",this,new_dir)}),
         }
     }
     fn reverse(&self) -> Self {
@@ -216,6 +345,7 @@ impl WorldMap {
         for (pos, _) in &self.data {
             self.draw_position(*pos)?;
         }
+        println!("");
         Ok(())
     }
 }
@@ -264,6 +394,64 @@ impl Robot {
             self.camera_view.data.get(&West.move_from(loc)) == Some(&Scaffold),
             self.camera_view.data.get(&East.move_from(loc)) == Some(&Scaffold),
         ))
+    }
+    fn find_path_to_end(&self) -> Result<String,Error> {
+        let robot_loc = self.find_robot()?;
+        let starting_direction = match self.camera_view.data.get(&robot_loc) {
+            Some(Up) => North,
+            Some(Down) => South,
+            Some(Left) => West,
+            Some(Right) => East,
+            _ => return Err(MapAssertFail {msg: format!("Robot not found at robot location {:?}!",robot_loc)})
+        };
+        let mut list_of_move_commands = String::new();
+        let mut this_location = robot_loc;
+        let mut move_direction = starting_direction;
+        let mut move_cnt_since_last_turn = 0;
+        loop {
+            match self.surrounding_space_is_scaffold(this_location)? {
+                (true,true,true,true) => {
+                    // Ignore intersection -- just passing through
+                },
+                (n,s,w,e) => {
+                    // remove direction we just came from
+                    let dir_to_move = match move_direction.reverse() {
+                        North => (false,s,w,e),
+                        South => (n,false,w,e),
+                        West => (n,s,false,e),
+                        East => (n,s,w,false),
+                    };
+                    // should be only one direction remaining -- the direction to move in
+                    let next_move_direction = match dir_to_move {
+                        ( true, false, false, false) => North,
+                        (false,  true, false, false) => South,
+                        (false, false,  true, false) => West,
+                        (false, false, false,  true) => East,
+                        (false, false, false, false) => {
+                            // Found end of path! Report length of final stretch
+                            list_of_move_commands.push(',');
+                            list_of_move_commands.push_str(&move_cnt_since_last_turn.to_string());                            
+                            break
+                        }, 
+                        _ => return Err(MapAssertFail {msg: format!("Can't follow scaffolding path at {:?}", this_location)}),
+                    };
+                    // Do we need to turn?
+                    if next_move_direction != move_direction {
+                        if move_cnt_since_last_turn > 0 {
+                            list_of_move_commands.push(',');
+                            list_of_move_commands.push_str(&move_cnt_since_last_turn.to_string());
+                            list_of_move_commands.push(',');
+                        }
+                        list_of_move_commands.push(move_direction.turn_required(next_move_direction)?);
+                        move_direction = next_move_direction;
+                        move_cnt_since_last_turn = 0;
+                    }
+                },
+            }
+            this_location = move_direction.move_from(this_location);
+            move_cnt_since_last_turn += 1;
+        }
+        Ok(list_of_move_commands)
     }
     fn find_intersections(&self) -> Result<HashSet<Location>,Error> {
         let robot_loc = self.find_robot()?;
