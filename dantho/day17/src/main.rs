@@ -85,95 +85,15 @@ async fn robot_run_part2(rx: Receiver<isize>, tx: Sender<isize>) -> Result<isize
     robot.download_camera_view().await?;
     // robot.camera_view.redraw_screen()?;
     let path_to_end = robot.find_path_to_end()?;
-    // println!("path_to_end: {}", path_to_end);
-    let mut path_to_end_flat = path_to_end.split(",").map(|s|{s.chars()}).flatten().collect::<String>();
-    println!("path_to_end: (sans comma) {}", path_to_end_flat); // L4L6L8L12L8R12L12L8R12L12L4L6L8L12L8R12L12R12L6L6L8L4L6L8L12R12L6L6L8L8R12L12R12L6L6L8
+    let _path_to_end = path_to_end.split(",").map(|s|{s.chars()}).flatten().collect::<String>();
+    let main = "A,C,C,A,C,B,A,B,C,B";
+    let a = "L,4,L,6,L,8,L,12";
+    let b = "R,12,L,6,L,6,L,8";
+    let c = "L,8,R,12,L,12";
 
-    for step1 in 0..4 {
-        let step = step1 * 2;
-        let turn_move_sexs: Vec::<_> = path_to_end
-            .split(",").skip(0+step).step_by(8)
-            .zip(path_to_end.split(",").skip(1+step).step_by(8))
-            .zip(path_to_end.split(",").skip(2+step).step_by(8))
-            .zip(path_to_end.split(",").skip(3+step).step_by(8))
-            .zip(path_to_end.split(",").skip(4+step).step_by(8))
-            .zip(path_to_end.split(",").skip(5+step).step_by(8))
-            .zip(path_to_end.split(",").skip(6+step).step_by(8))
-            .zip(path_to_end.split(",").skip(7+step).step_by(8))
-            .map(|(((((((a,b),c),d),e),f),g),h)| {(a,b,c,d,e,f,g,h)})
-            .collect();
-        let mut turn_move_hash: HashMap::<_,u8> = HashMap::new();
-        for sex in turn_move_sexs {
-            let mut sex_string = String::new();
-            sex_string.push_str(sex.0);
-            sex_string.push_str(sex.1);
-            sex_string.push_str(sex.2);
-            sex_string.push_str(sex.3);
-            sex_string.push_str(sex.4);
-            sex_string.push_str(sex.5);
-            sex_string.push_str(sex.6);
-            sex_string.push_str(sex.7);
-            *turn_move_hash.entry(sex_string).or_default() += 1;
-        }
-        println!("Octal{}: {:?}", step1, turn_move_hash);
-    }
+    let dust = robot.execute_path(main,a,b,c).await?;
 
-    for step1 in 0..3 {
-        let step = step1 * 2;
-        let turn_move_sexs: Vec::<_> = path_to_end
-            .split(",").skip(0+step).step_by(6)
-            .zip(path_to_end.split(",").skip(1+step).step_by(6))
-            .zip(path_to_end.split(",").skip(2+step).step_by(6))
-            .zip(path_to_end.split(",").skip(3+step).step_by(6))
-            .zip(path_to_end.split(",").skip(4+step).step_by(6))
-            .zip(path_to_end.split(",").skip(5+step).step_by(6))
-            .map(|(((((a,b),c),d),e),f)| {(a,b,c,d,e,f)})
-            .collect();
-        let mut turn_move_hash: HashMap::<_,u8> = HashMap::new();
-        for sex in turn_move_sexs {
-            let mut sex_string = String::new();
-            sex_string.push_str(sex.0);
-            sex_string.push_str(sex.1);
-            sex_string.push_str(sex.2);
-            sex_string.push_str(sex.3);
-            sex_string.push_str(sex.4);
-            sex_string.push_str(sex.5);
-            *turn_move_hash.entry(sex_string).or_default() += 1;
-        }
-        println!("Sex{}: {:?}", step1, turn_move_hash);
-    }
-    // path_to_end_flat = path_to_end_flat.split("L4L6L8L12").map(|s|{s.chars().chain("A".chars())}).flatten().collect::<String>();//A
-    // path_to_end_flat = path_to_end_flat.split("R12L6L6L8").map(|s|{s.chars().chain("B".chars())}).flatten().collect::<String>();//B
-    // path_to_end_flat = path_to_end_flat.split("L8R12L12").map(|s|{s.chars().chain("C".chars())}).flatten().collect::<String>();//C
-    // A "L4L6L8L12"
-    // B "R12L6L6L8"
-    // C "L8R12L12"
-    // CA' "L8R12L12L4"
-    let A = "L4L6L8L12";
-    let B = "R12L6L6L8";
-    let C = "L8R12L12";
-    let main = "ACCACBABCB";
-    let path_to_end_construct: String =  main.chars().map(|c| {
-        match c {
-            'A' => A,
-            'B' => B,
-            'C' => C,
-            _ => "**error**",
-        }
-    }).map(|s|{s.chars()}).flatten().collect();
-    println!("path_orig {}", path_to_end_flat); // L4L6L8L12L8R12L12L8R12L12L4L6L8L12L8R12L12R12L6L6L8L4L6L8L12R12L6L6L8L8R12L12R12L6L6L8
-    println!("path_cons {}", path_to_end_construct);
-    if path_to_end_flat == path_to_end_construct {println!("Hurray")} else {println!("Shit.")}
-    path_to_end_flat = path_to_end_flat.split("L4L6L8L12").map(|s|{"A".chars().chain(s.chars())}).flatten().collect::<String>();//A
-    path_to_end_flat = path_to_end_flat.split("R12L6L6L8").map(|s|{"B".chars().chain(s.chars())}).flatten().collect::<String>();//B
-    path_to_end_flat = path_to_end_flat.split("L8R12L12").map(|s|{"C".chars().chain(s.chars())}).flatten().collect::<String>();//C
-    println!("path_to_end: (sans comma) {}", path_to_end_flat); // L4L6L8L12L8R12L12L8R12L12L4L6L8L12L8R12L12R12L6L6L8L4L6L8L12R12L6L6L8L8R12L12R12L6L6L8
-    let path_to_end = path_to_end_flat.chars().map(|c| {
-        if c == 'R' || c == 'L' {format!(",{},",c)} else {c.to_string()}
-    }).collect::<String>();
-    let path_to_end: String = path_to_end.chars().skip(1).collect();
-
-    Ok(-1)
+    Ok(dust)
 }
 #[derive(Debug)]
 enum Error {
@@ -335,12 +255,12 @@ fn set_cursor_pos(y:isize,x:isize) {
 struct Robot {
     camera_view: WorldMap,
     rx: Receiver<isize>,
-    _tx: Sender<isize>,
+    tx: Sender<isize>,
 }
 impl Robot {
     fn new(rx: Receiver<isize>, tx: Sender<isize>) -> Self {
         let camera_view = WorldMap::new();
-        Robot { camera_view, rx, _tx: tx }
+        Robot { camera_view, rx, tx: tx }
     }
     fn find_robot(&self) -> Result<Location,Error> {
         match self.camera_view.data.iter().fold(None,|cam_loc, ((y,x), item)| {
@@ -459,6 +379,47 @@ impl Robot {
             }
         }
         Ok(intersections)
+    }
+    async fn execute_path(&mut self, main: &str, a: &str, b: &str, c: &str) -> Result<isize,Error> {
+        for sub_program in &[main, a, b, c] {
+            println!("Sending sub-program");
+            let ascii_stream: Vec<_> = sub_program.chars().map(|ch|ch as isize).chain((10..).take(1)).collect();
+            for i in ascii_stream {
+                // Send a program data to Robot's Intcode Computer
+                if let Err(_) = self.tx.send(i).await {
+                    return Err(Error::RobotComms { msg:format!("Robot output channel failure.  The following data is being discarded:\n   {:?}", i) });
+                }
+            }
+            loop {
+                // Fetch confirmation
+                let arbitrary = match self.rx.next().await {
+                    Some(ans) => ans,
+                    None => return Err(RobotComms {msg: "Incode computer stopped transmitting.".to_string()}),
+                };
+                if arbitrary == 10 {
+                    break;
+                } else {
+                    println!("Got arb response: {}", arbitrary);
+                }
+            }
+                // Fetch confirmation
+            let arbitrary = match self.rx.next().await {
+                Some(ans) => ans,
+                None => return Err(RobotComms {msg: "Incode computer stopped transmitting.".to_string()}),
+            };
+            println!("Got arb response: {}", arbitrary);
+        }
+        // Send a y/n answer to Robot's Intcode Computer
+        if let Err(_) = self.tx.send('n' as isize).await {
+            return Err(Error::RobotComms { msg:format!("Robot output channel failure.  The following data is being discarded:\n   {:?}", 'n') });
+        }
+        println!("Waiting on dust response");
+        // Fetch the response of total dust collected...
+        let dust_collected = match self.rx.next().await {
+            Some(ans) => ans,
+            None => return Err(RobotComms {msg: "Incode computer stopped transmitting.".to_string()}),
+        };
+        Ok(dust_collected)
     }
     async fn download_camera_view(&mut self) -> Result<(),Error> {
         // Slow things down for debug or visualization
