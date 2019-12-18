@@ -13,8 +13,6 @@ use futures::prelude::*;
 use futures::channel::mpsc::{channel,Sender,Receiver};
 use futures::executor::block_on;
 use futures::join;
-use futures::future::BoxFuture; // https://rust-lang.github.io/async-book/07_workarounds/05_recursion.html
-use RobotStatus::*;
 use RobotMovement::*;
 use MapData::*;
 use Error::*;
@@ -64,13 +62,12 @@ async fn robot_run(rx: Receiver<isize>, tx: Sender<isize>) -> Result<isize,Error
     robot.download_camera_view().await?;
     robot.camera_view.redraw_screen()?;
     let intersections = robot.find_intersections()?;
-//    robot.camera_view.redraw_screen()?;
 
     let sum_of_alignment_params = intersections.iter()
         .fold(0,|sum, (y,x)| {
             sum + *y**x
         });
-    println!("Intersections: {:?}", intersections);
+    // println!("\nIntersections: {:?}", intersections);
 
     Ok(sum_of_alignment_params)
 
@@ -92,22 +89,6 @@ async fn robot_run(rx: Receiver<isize>, tx: Sender<isize>) -> Result<isize,Error
     //     if *minutes > most_minutes {*minutes} else {most_minutes}
     // });
     // Ok((distance_to_oxygen_sensor, minutes_to_fill_with_oxygen))
-}
-fn map_distance(map: &mut BTreeMap<Location, usize>, loc: Location, distance: usize) -> Result<(),Error> {
-    let this_loc = match map.get_mut(&loc) {
-        Some(dist) => dist,
-        None => return Ok(()), // END RECURSION (Scaffold or unknown found)
-    };
-    if *this_loc <= distance {
-        return Ok(()) // END RECURSION (crossed [equiv or superior] path)
-    }
-    *this_loc = distance; // Set present location
-    // Recurse into cardinal directions
-    map_distance(map, (loc.0-1,loc.1), distance+1)?; // North
-    map_distance(map, (loc.0+1,loc.1), distance+1)?; // South
-    map_distance(map, (loc.0,loc.1-1), distance+1)?; // West
-    map_distance(map, (loc.0,loc.1+1), distance+1)?; // East
-    Ok(())
 }
 #[derive(Debug)]
 enum Error {
@@ -206,25 +187,6 @@ impl RobotMovement {
         }
     }
 }
-#[derive(Debug,Copy,Clone,Eq,PartialEq)]
-enum RobotStatus {
-    HitScaffold=0,
-    Moved=1,
-    OxygenSystemDetected=2,
-}
-impl TryFrom<isize> for RobotStatus {
-    type Error = Error;
-    fn try_from(val: isize) -> Result<Self, Self::Error> {
-        use RobotStatus::*;
-        let status = match val {
-            n if n == HitScaffold as isize => HitScaffold,
-            n if n == Moved as isize => Moved,
-            n if n == OxygenSystemDetected as isize => OxygenSystemDetected,
-            _ => return Err(Error::IllegalRobotResponse { val }),
-        };
-        Ok(status)
-    }
-}
 struct WorldMap {
     origin: Location,
     data: BTreeMap<Location, MapData>,
@@ -234,27 +196,6 @@ impl WorldMap {
         let origin = (-5,-5);
         let data = BTreeMap::new();
         WorldMap {origin, data}
-    }
-    fn is_known(&self, pos: &Location) -> bool {
-        self.data.contains_key(pos)
-    }
-    fn modify_data(&mut self, position: Location, data: MapData) -> Result<(),Error> {
-        self.update_origin(position)?;
-        match self.data.get_mut(&position) {
-            None => {
-                self.data.insert(position, data);
-            },
-            Some(&mut Scaffold) => {
-                if data != Scaffold {
-                    return Err(Error::MapAssertFail {msg: format!("Placing {:?} on Scaffold at {:?}", data, position)});
-                }
-            },
-            Some(map_data_here) => {
-                *map_data_here = data;
-            }
-        }
-        self.draw_position(position)?;
-        Ok(())
     }
     fn draw_position(&self, pos: Location) -> Result<(),Error> {
         if pos.0 < self.origin.0 || pos.1 < self.origin.1 {
@@ -277,35 +218,6 @@ impl WorldMap {
         }
         Ok(())
     }
-    fn update_origin(&mut self, position:Location) -> Result<(),Error> {
-        let mut redraw_required = false;
-        if position.0 < self.origin.0 {
-            self.origin = (self.origin.0-5, self.origin.1);
-            redraw_required = true;
-        }
-        if position.1 < self.origin.1 {
-            self.origin = (self.origin.0, self.origin.1-5);
-            redraw_required = true;
-        }
-        if redraw_required {
-            self.redraw_screen()?;
-            set_cursor_pos(20, 20);
-        }
-        Ok(())
-    }
-    fn lower_right_corner(&self) -> Location {
-        self.data.iter().fold((std::isize::MIN,std::isize::MIN),|(max_y,max_x), ((y,x),_)| {
-            (
-                if *y > max_y {*y} else {max_y},
-                if *x > max_x {*x} else {max_x}
-            )
-        })
-    }
-    fn lower_right_corner_on_screen(&self) -> Location {
-        let signed_location = self.lower_right_corner();
-        let on_screen = (signed_location.0-self.origin.0, signed_location.1-self.origin.1);
-        on_screen
-    }
 }
 fn print(s: &str) {
     print!("{}",s);
@@ -327,12 +239,12 @@ fn set_cursor_pos(y:isize,x:isize) {
 struct Robot {
     camera_view: WorldMap,
     rx: Receiver<isize>,
-    tx: Sender<isize>,
+    _tx: Sender<isize>,
 }
 impl Robot {
     fn new(rx: Receiver<isize>, tx: Sender<isize>) -> Self {
         let camera_view = WorldMap::new();
-        Robot { camera_view, rx, tx }
+        Robot { camera_view, rx, _tx: tx }
     }
     fn find_robot(&self) -> Result<Location,Error> {
         match self.camera_view.data.iter().fold(None,|cam_loc, ((y,x), item)| {
