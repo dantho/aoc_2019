@@ -142,18 +142,31 @@ async fn robot_run_part2(rx: Receiver<isize>, tx: Sender<isize>) -> Result<isize
         }
         println!("Sex{}: {:?}", step1, turn_move_hash);
     }
-    path_to_end_flat = path_to_end_flat.split("L4L6L8L12").map(|s|{s.chars().chain("A".chars())}).flatten().collect::<String>();//A
-    path_to_end_flat = path_to_end_flat.split("R12L6L6L8").map(|s|{s.chars().chain("B".chars())}).flatten().collect::<String>();//B
-    path_to_end_flat = path_to_end_flat.split("L8R12L12").map(|s|{s.chars().chain("C".chars())}).flatten().collect::<String>();//C
+    // path_to_end_flat = path_to_end_flat.split("L4L6L8L12").map(|s|{s.chars().chain("A".chars())}).flatten().collect::<String>();//A
+    // path_to_end_flat = path_to_end_flat.split("R12L6L6L8").map(|s|{s.chars().chain("B".chars())}).flatten().collect::<String>();//B
+    // path_to_end_flat = path_to_end_flat.split("L8R12L12").map(|s|{s.chars().chain("C".chars())}).flatten().collect::<String>();//C
     // A "L4L6L8L12"
     // B "R12L6L6L8"
     // C "L8R12L12"
     // CA' "L8R12L12L4"
-    // path_to_end_flat = path_to_end_flat.split("R12L6L6L8").map(|s|{s.chars().chain(",".chars())}).flatten().collect::<String>();//4
-    // path_to_end_flat = path_to_end_flat.split("L12R12L6L6").map(|s|{s.chars().chain(",".chars())}).flatten().collect::<String>();//4
-    // path_to_end_flat = path_to_end_flat.split("L8R12L12L4").map(|s|{s.chars().chain(",".chars())}).flatten().collect::<String>();//4
-    // path_to_end_flat = path_to_end_flat.split("L8R12L12R12").map(|s|{s.chars().chain(",".chars())}).flatten().collect::<String>();//4
-    // path_to_end_flat = path_to_end_flat.split("L6L6L8").map(|s|{s.chars().chain(",".chars())}).flatten().collect::<String>();//3
+    let A = "L4L6L8L12";
+    let B = "R12L6L6L8";
+    let C = "L8R12L12";
+    let main = "ACCACBABCB";
+    let path_to_end_construct: String =  main.chars().map(|c| {
+        match c {
+            'A' => A,
+            'B' => B,
+            'C' => C,
+            _ => "**error**",
+        }
+    }).map(|s|{s.chars()}).flatten().collect();
+    println!("path_orig {}", path_to_end_flat); // L4L6L8L12L8R12L12L8R12L12L4L6L8L12L8R12L12R12L6L6L8L4L6L8L12R12L6L6L8L8R12L12R12L6L6L8
+    println!("path_cons {}", path_to_end_construct);
+    if path_to_end_flat == path_to_end_construct {println!("Hurray")} else {println!("Shit.")}
+    path_to_end_flat = path_to_end_flat.split("L4L6L8L12").map(|s|{"A".chars().chain(s.chars())}).flatten().collect::<String>();//A
+    path_to_end_flat = path_to_end_flat.split("R12L6L6L8").map(|s|{"B".chars().chain(s.chars())}).flatten().collect::<String>();//B
+    path_to_end_flat = path_to_end_flat.split("L8R12L12").map(|s|{"C".chars().chain(s.chars())}).flatten().collect::<String>();//C
     println!("path_to_end: (sans comma) {}", path_to_end_flat); // L4L6L8L12L8R12L12L8R12L12L4L6L8L12L8R12L12R12L6L6L8L4L6L8L12R12L6L6L8L8R12L12R12L6L6L8
     let path_to_end = path_to_end_flat.chars().map(|c| {
         if c == 'R' || c == 'L' {format!(",{},",c)} else {c.to_string()}
