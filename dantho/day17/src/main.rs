@@ -21,7 +21,7 @@ use Error::*;
 use std::time::Duration;
 
 fn main() -> Result<(),Error> {
-    const PROG_MEM_SIZE: usize = 3000;
+    const PROG_MEM_SIZE: usize = 4000;
     let filename = "input.txt";
     let fd = File::open(filename).expect(&format!("Failure opening {}", filename));
     let buf = BufReader::new(fd);
@@ -37,13 +37,13 @@ fn main() -> Result<(),Error> {
         let mut extra_space = vec![0; PROG_MEM_SIZE - prog_orig.len()];
         prog_orig.append(&mut extra_space);
     };
-    let (fewest_moves, most_minutes) = match block_on(boot_intcode_and_robot(prog_orig.clone())) {
+    let sum_of_alignment_params = match block_on(boot_intcode_and_robot(prog_orig.clone())) {
         Ok(result) => result,
         Err(e) => return Err(e),
     };
     println!("");
-    println!("Part 1: Fewest moves to find the oxygen system is {}", fewest_moves );
-    println!("Part 2: Minutes to fill every corner with oxygen is {}", most_minutes );
+    println!("Part 1: Sum of alignment parameters is {}", sum_of_alignment_params);
+    // println!("Part 2: xxx is {}", xxx);
     Ok(())
 }
 async fn boot_intcode_and_robot(prog: Vec<isize>) -> Result<isize,Error> {
@@ -59,8 +59,8 @@ async fn boot_intcode_and_robot(prog: Vec<isize>) -> Result<isize,Error> {
 }
 async fn robot_run(rx: Receiver<isize>, tx: Sender<isize>) -> Result<isize,Error> {
     let mut robot = Robot::new(rx, tx);
-    robot.camera_view.redraw_screen()?;
     robot.download_camera_view().await?;
+    robot.camera_view.redraw_screen()?;
 
     let sum_of_alignment_params = robot.camera_view.data.iter()
         .filter(|(_,item)| {**item == Intersection})
@@ -108,7 +108,7 @@ fn map_distance(map: &mut BTreeMap<(isize,isize), usize>, loc: (isize,isize), di
 #[derive(Debug)]
 enum Error {
     IllegalOpcode {code: isize},
-    IllegalStatus {val: isize},
+    IllegalRobotResponse {val: isize},
     RobotComms {msg: String},
     ComputerComms {msg: String},
     MapAssertFail {msg: String},
@@ -118,13 +118,13 @@ enum Error {
 enum MapData {
     Empty=46,        // '.'
     Scaffold=35,     // '#'
-    NewLine=10,      // '\n'
     Intersection=79, // 'O'
     Up=94,           // '^'
     Down=118,        // 'v'
     Left=60,         // '<'
     Right=62,        // '>'
     TumblingThroughSpace=88, // 'X'
+    NewLine=10,      // Used for control flow (changing row #, marking end of output) only. Not saved in map.
 }
 // See https://jrgraphix.net/r/Unicode/2700-27BF for Dingbats in unicode
 impl MapData {
@@ -132,13 +132,34 @@ impl MapData {
         print("\x1B[56m"); // SIDE EFFECT - print white control chars (default color)
         match *self {
             Scaffold => "■",
-            Empty => ".",
-            Intersection => "☻",
+            Empty => "•",
+            Intersection => "+",
             Up => "^",
             Down =>"v",
             Left =>"<",
             Right =>">",
+            TumblingThroughSpace =>"☻",
+            NewLine => "Not a REAL Map Item",
         }
+    }
+}
+impl TryFrom<isize> for MapData {
+    type Error = Error;
+    fn try_from(val: isize) -> Result<Self, Self::Error> {
+        use MapData::*;
+        let status = match val {
+            n if n == Scaffold as isize => Scaffold,
+            n if n == Empty as isize => Empty,
+            n if n == Intersection as isize => Intersection,
+            n if n == Up as isize => Up,
+            n if n == Down as isize => Down,
+            n if n == Left as isize => Left,
+            n if n == Right as isize => Right,
+            n if n == TumblingThroughSpace as isize => TumblingThroughSpace,
+            n if n == NewLine as isize => NewLine,
+            _ => return Err(Error::IllegalRobotResponse { val }),
+        };
+        Ok(status)
     }
 }
 #[derive(Debug,Copy,Clone,Eq,PartialEq)]
@@ -157,7 +178,7 @@ impl TryFrom<isize> for RobotMovement {
             n if n == South as isize => South,
             n if n == West as isize => West,
             n if n == East as isize => East,
-            _ => return Err(Error::IllegalStatus { val }),
+            _ => return Err(Error::IllegalRobotResponse { val }),
         };
         Ok(status)
     }
@@ -194,7 +215,7 @@ impl TryFrom<isize> for RobotStatus {
             n if n == HitScaffold as isize => HitScaffold,
             n if n == Moved as isize => Moved,
             n if n == OxygenSystemDetected as isize => OxygenSystemDetected,
-            _ => return Err(Error::IllegalStatus { val }),
+            _ => return Err(Error::IllegalRobotResponse { val }),
         };
         Ok(status)
     }
@@ -300,90 +321,53 @@ fn set_cursor_pos(y:isize,x:isize) {
 // }
 struct Robot {
     camera_view: WorldMap,
-    robot_position: (isize,isize),
-    oxygen_position_if_known: Option<(isize,isize)>,
     rx: Receiver<isize>,
     tx: Sender<isize>,
 }
 impl Robot {
     fn new(rx: Receiver<isize>, tx: Sender<isize>) -> Self {
         let mut camera_view = WorldMap::new();
-        let robot_position: (isize,isize) = (0,0);
-        let oxygen_position_if_known: Option<(isize,isize)> = None;  // Unknown as yet
-        camera_view.data.insert(robot_position, MapData::Robot);
-        Robot { camera_view, robot_position, oxygen_position_if_known, rx, tx }
+        Robot { camera_view, rx, tx }
     }
-    // download_camera_view() is a recursive algorithm (4-way) to visit all UNVISITED squares to determine the contents.
-    // A previously visited square of any kind (preemptively) ENDS the (leg of the 4-way) recursion.
-    // See https://rust-lang.github.io/async-book/07_workarounds/05_recursion.html 
-    //    for explanation of fn syntax and async block usage
-    fn download_camera_view<'a>(&'a mut self) -> BoxFuture<'a, Result<(),Error>> {
-        async move {
-            // Explore cardinal directions, returning to center each time
-            for dir in &[North, South, West, East] {
-                let move_dir = *dir;
-                if !self.camera_view.is_known(&move_dir.move_from(self.robot_position)) {
-                    if self.move_robot(move_dir).await? {
-                        // Then download_camera_view there
-                        self.download_camera_view().await?;
-                        // and move back to continue more local exploration
-                        self.move_robot(move_dir.reverse()).await?;
-                    }
-                } 
-            }
-            Ok(())
-        }.boxed()
-    }
-    async fn move_robot(&mut self, move_dir: RobotMovement) -> Result<bool,Error> {
-        let move_succeeded: bool;
+    async fn download_camera_view(&mut self) -> Result<(),Error> {
         // Slow things down for debug or visualization
         // ESPECIALLY at start
         let delay = Duration::from_millis(0);
         std::thread::sleep(delay);
-        // Send a movement command to Robot's Intcode Computer
-        if let Err(_) = self.tx.send(move_dir as isize).await {
-            return Err(Error::RobotComms { msg:format!("Robot output channel failure.  The following data is being discarded:\n   {:?}", move_dir) });
+        let mut next_coord = (0,0);
+        loop {
+            // Fetch the next image datapoint
+            let next_item = match self.rx.next().await {
+                Some(item) => MapData::try_from(item)?,
+                None => return Err(RobotComms {msg: "Incode computer stopped transmitting.".to_string()}),
+            };
+            if next_item == NewLine {
+                if next_coord.1 == 0 {break;} // \n\n signifies the end of map image
+                next_coord = (next_coord.0+1,0);
+            } else {
+                self.camera_view.data.insert(next_coord, next_item);
+                next_coord = (next_coord.0, next_coord.1+1);
+            };
         }
-        // And fetch a response
-        let status = match self.rx.next().await {
-            Some(st) => RobotStatus::try_from(st)?,
-            None => return Err(RobotComms {msg: "Incode computer stopped transmitting.".to_string()}),
-        };
-        // Interpret response
-        match status {
-            HitScaffold => {
-                move_succeeded = false;
-                let wall_position = move_dir.move_from(self.robot_position);
-                self.camera_view.modify_data(wall_position, Scaffold)?;
-            },
-            Moved => {
-                move_succeeded = true;
-                // clear up old robot location
-                self.camera_view.modify_data(self.robot_position, Empty)?; // Empty unless...
-                if let Some(ox) = self.oxygen_position_if_known {
-                    if ox == self.robot_position {
-                        self.camera_view.modify_data(self.robot_position, OxygenSystem)?;
-                    }
-                }
-                // move robot
-                self.robot_position = move_dir.move_from(self.robot_position);
-                self.camera_view.modify_data(self.robot_position, Robot)?;
-            },
-            OxygenSystemDetected => {
-                move_succeeded = true;
-                // clear up old robot location
-                self.camera_view.modify_data(self.robot_position, Empty)?; // definitely Empty
-                // move robot
-                self.robot_position = move_dir.move_from(self.robot_position);
-                self.camera_view.modify_data(self.robot_position, Robot)?; // Or Robot_Oxygen combo?
-                // and udate crucial information
-                self.oxygen_position_if_known = Some(self.robot_position);
-            },
-        }
-        Ok(move_succeeded)
+        // Validate response
+        let row_endpoints: Vec<_> = self.camera_view.data.iter().map(|((y,x),_)|{(y,x)})
+            .skip(1).zip(self.camera_view.data.iter().map(|((y,x),_)|{(y,x)}))
+            .filter_map(|((y,_),(old_y,old_x))| {
+                if *y == *old_y + 1 {Some((*old_y,*old_x))} else {None}
+            }).collect();
+        println!("Row Endpoints: {:?}", row_endpoints);
+        if row_endpoints.iter().map(|(y,_)|{y})
+            .skip(1).zip(row_endpoints.iter().map(|(y,_)|{y}))
+            .fold(false,|b,(y,old_y)|{b || *y != *old_y + 1}) {
+                Err(MapAssertFail {msg: "Bad Map: Rows not contiguous!".to_string()})
+            } else if row_endpoints.iter().map(|(_,x)|{x})
+                .skip(1).zip(row_endpoints.iter().map(|(_,x)|{x})).fold(false, |b,(x,old_x)| {b || x != old_x}) {
+                Err(MapAssertFail {msg: "Bad Map: Rows are not the same length!".to_string()})
+            } else {
+                Ok(())
+            }
     }
 }
-
 // Intcode Computer
 #[derive(Debug)]
 enum OpCode {
