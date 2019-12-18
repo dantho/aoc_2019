@@ -8,7 +8,7 @@ use std::io::prelude::*;
 use std::io::{BufReader, Write, stdout};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Debug;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use futures::prelude::*;
 use futures::channel::mpsc::{channel,Sender,Receiver};
 use futures::executor::block_on;
@@ -19,6 +19,8 @@ use RobotMovement::*;
 use MapData::*;
 use Error::*;
 use std::time::Duration;
+
+type Location = (isize,isize);
 
 fn main() -> Result<(),Error> {
     const PROG_MEM_SIZE: usize = 4000;
@@ -61,12 +63,14 @@ async fn robot_run(rx: Receiver<isize>, tx: Sender<isize>) -> Result<isize,Error
     let mut robot = Robot::new(rx, tx);
     robot.download_camera_view().await?;
     robot.camera_view.redraw_screen()?;
+    let intersections = robot.find_intersections()?;
+//    robot.camera_view.redraw_screen()?;
 
-    let sum_of_alignment_params = robot.camera_view.data.iter()
-        .filter(|(_,item)| {**item == Intersection})
-        .fold(0,|sum, ((y,x), _) | {
-            *y**x
+    let sum_of_alignment_params = intersections.iter()
+        .fold(0,|sum, (y,x)| {
+            sum + *y**x
         });
+    println!("Intersections: {:?}", intersections);
 
     Ok(sum_of_alignment_params)
 
@@ -89,7 +93,7 @@ async fn robot_run(rx: Receiver<isize>, tx: Sender<isize>) -> Result<isize,Error
     // });
     // Ok((distance_to_oxygen_sensor, minutes_to_fill_with_oxygen))
 }
-fn map_distance(map: &mut BTreeMap<(isize,isize), usize>, loc: (isize,isize), distance: usize) -> Result<(),Error> {
+fn map_distance(map: &mut BTreeMap<Location, usize>, loc: Location, distance: usize) -> Result<(),Error> {
     let this_loc = match map.get_mut(&loc) {
         Some(dist) => dist,
         None => return Ok(()), // END RECURSION (Scaffold or unknown found)
@@ -113,6 +117,7 @@ enum Error {
     ComputerComms {msg: String},
     MapAssertFail {msg: String},
     MapOriginWrong {msg: String},
+    CameraNotFound,
 }
 #[derive(Debug,Copy,Clone,Eq,PartialEq)]
 enum MapData {
@@ -184,7 +189,7 @@ impl TryFrom<isize> for RobotMovement {
     }
 }
 impl RobotMovement {
-    fn move_from(&self, loc: (isize,isize)) -> (isize,isize) {
+    fn move_from(&self, loc: Location) -> Location {
         match self {
             North => (loc.0-1, loc.1),
             South => (loc.0+1, loc.1),
@@ -221,8 +226,8 @@ impl TryFrom<isize> for RobotStatus {
     }
 }
 struct WorldMap {
-    origin: (isize,isize),
-    data: BTreeMap<(isize,isize), MapData>,
+    origin: Location,
+    data: BTreeMap<Location, MapData>,
 }
 impl WorldMap {
     fn new() -> Self {
@@ -230,10 +235,10 @@ impl WorldMap {
         let data = BTreeMap::new();
         WorldMap {origin, data}
     }
-    fn is_known(&self, pos: &(isize,isize)) -> bool {
+    fn is_known(&self, pos: &Location) -> bool {
         self.data.contains_key(pos)
     }
-    fn modify_data(&mut self, position: (isize,isize), data: MapData) -> Result<(),Error> {
+    fn modify_data(&mut self, position: Location, data: MapData) -> Result<(),Error> {
         self.update_origin(position)?;
         match self.data.get_mut(&position) {
             None => {
@@ -251,7 +256,7 @@ impl WorldMap {
         self.draw_position(position)?;
         Ok(())
     }
-    fn draw_position(&self, pos: (isize,isize)) -> Result<(),Error> {
+    fn draw_position(&self, pos: Location) -> Result<(),Error> {
         if pos.0 < self.origin.0 || pos.1 < self.origin.1 {
             return Err(MapOriginWrong {
                 msg: format!("Map pos {:?} is lower than origin at {:?}", pos, self.origin)})}
@@ -272,7 +277,7 @@ impl WorldMap {
         }
         Ok(())
     }
-    fn update_origin(&mut self, position:(isize,isize)) -> Result<(),Error> {
+    fn update_origin(&mut self, position:Location) -> Result<(),Error> {
         let mut redraw_required = false;
         if position.0 < self.origin.0 {
             self.origin = (self.origin.0-5, self.origin.1);
@@ -288,7 +293,7 @@ impl WorldMap {
         }
         Ok(())
     }
-    fn lower_right_corner(&self) -> (isize,isize) {
+    fn lower_right_corner(&self) -> Location {
         self.data.iter().fold((std::isize::MIN,std::isize::MIN),|(max_y,max_x), ((y,x),_)| {
             (
                 if *y > max_y {*y} else {max_y},
@@ -296,7 +301,7 @@ impl WorldMap {
             )
         })
     }
-    fn lower_right_corner_on_screen(&self) -> (isize,isize) {
+    fn lower_right_corner_on_screen(&self) -> Location {
         let signed_location = self.lower_right_corner();
         let on_screen = (signed_location.0-self.origin.0, signed_location.1-self.origin.1);
         on_screen
@@ -326,8 +331,68 @@ struct Robot {
 }
 impl Robot {
     fn new(rx: Receiver<isize>, tx: Sender<isize>) -> Self {
-        let mut camera_view = WorldMap::new();
+        let camera_view = WorldMap::new();
         Robot { camera_view, rx, tx }
+    }
+    fn find_robot(&self) -> Result<Location,Error> {
+        match self.camera_view.data.iter().fold(None,|cam_loc, ((y,x), item)| {
+            match item {
+                Up|Down|Left|Right => Some((*y,*x)),
+                _ => cam_loc,
+            }
+        }) {
+            Some(cam_loc) => Ok(cam_loc),
+            None => Err( CameraNotFound ),
+        }
+    }
+    fn surrounding_space_is_scaffold(&self, loc: Location) -> Result<(bool,bool,bool,bool),Error> {
+        Ok((
+            self.camera_view.data.get(&North.move_from(loc)) == Some(&Scaffold),
+            self.camera_view.data.get(&South.move_from(loc)) == Some(&Scaffold),
+            self.camera_view.data.get(&West.move_from(loc)) == Some(&Scaffold),
+            self.camera_view.data.get(&East.move_from(loc)) == Some(&Scaffold),
+        ))
+    }
+    fn find_intersections(&self) -> Result<HashSet<Location>,Error> {
+        let robot_loc = self.find_robot()?;
+        let starting_direction = match self.surrounding_space_is_scaffold(robot_loc)? {
+            ( true, false, false, false) => North,
+            (false,  true, false, false) => South,
+            (false, false,  true, false) => West,
+            (false, false, false,  true) => East,
+            _ => return Err(MapAssertFail {msg: "Robot not on start of Scaffold!".to_string()})
+        };
+        let mut intersections = HashSet::new();
+        let mut this_location = robot_loc;
+        let mut search_direction = starting_direction;
+        loop {
+            match self.surrounding_space_is_scaffold(this_location)? {
+                (true,true,true,true) => {
+                    // Intersection FOUND
+                    intersections.insert(this_location);
+                    this_location = search_direction.move_from(this_location);
+                }
+                (n,s,w,e) => {
+                    // remove direction we just came from
+                    let dir_to_move = match search_direction.reverse() {
+                        North => (false,s,w,e),
+                        South => (n,false,w,e),
+                        West => (n,s,false,e),
+                        East => (n,s,w,false),
+                    };
+                    search_direction = match dir_to_move {
+                        ( true, false, false, false) => North,
+                        (false,  true, false, false) => South,
+                        (false, false,  true, false) => West,
+                        (false, false, false,  true) => East,
+                        (false, false, false, false) => break, // Found end of path!
+                        _ => return Err(MapAssertFail {msg: format!("Can't follow scaffolding path at {:?}", this_location)}),
+                    };
+                    this_location = search_direction.move_from(this_location);
+                }
+            }
+        }
+        Ok(intersections)
     }
     async fn download_camera_view(&mut self) -> Result<(),Error> {
         // Slow things down for debug or visualization
