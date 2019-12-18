@@ -84,128 +84,81 @@ async fn robot_run_part2(rx: Receiver<isize>, tx: Sender<isize>) -> Result<isize
     let mut robot = Robot::new(rx, tx);
     robot.download_camera_view().await?;
     // robot.camera_view.redraw_screen()?;
-    let _path_to_end = robot.find_path_to_end()?;
+    let path_to_end = robot.find_path_to_end()?;
     // println!("path_to_end: {}", path_to_end);
     let mut path_to_end_flat = path_to_end.split(",").map(|s|{s.chars()}).flatten().collect::<String>();
     println!("path_to_end: (sans comma) {}", path_to_end_flat); // L4L6L8L12L8R12L12L8R12L12L4L6L8L12L8R12L12R12L6L6L8L4L6L8L12R12L6L6L8L8R12L12R12L6L6L8
-    path_to_end_flat = path_to_end_flat.split("L4L6L8L12").map(|s|{s.chars().chain(",".chars())}).flatten().collect::<String>();//3
-    path_to_end_flat = path_to_end_flat.split("R12L6L6L8").map(|s|{s.chars().chain(",".chars())}).flatten().collect::<String>();//3
-    path_to_end_flat = path_to_end_flat.split("L8R12L12").map(|s|{s.chars().chain(",".chars())}).flatten().collect::<String>();//4
+
+    for step1 in 0..4 {
+        let step = step1 * 2;
+        let turn_move_sexs: Vec::<_> = path_to_end
+            .split(",").skip(0+step).step_by(8)
+            .zip(path_to_end.split(",").skip(1+step).step_by(8))
+            .zip(path_to_end.split(",").skip(2+step).step_by(8))
+            .zip(path_to_end.split(",").skip(3+step).step_by(8))
+            .zip(path_to_end.split(",").skip(4+step).step_by(8))
+            .zip(path_to_end.split(",").skip(5+step).step_by(8))
+            .zip(path_to_end.split(",").skip(6+step).step_by(8))
+            .zip(path_to_end.split(",").skip(7+step).step_by(8))
+            .map(|(((((((a,b),c),d),e),f),g),h)| {(a,b,c,d,e,f,g,h)})
+            .collect();
+        let mut turn_move_hash: HashMap::<_,u8> = HashMap::new();
+        for sex in turn_move_sexs {
+            let mut sex_string = String::new();
+            sex_string.push_str(sex.0);
+            sex_string.push_str(sex.1);
+            sex_string.push_str(sex.2);
+            sex_string.push_str(sex.3);
+            sex_string.push_str(sex.4);
+            sex_string.push_str(sex.5);
+            sex_string.push_str(sex.6);
+            sex_string.push_str(sex.7);
+            *turn_move_hash.entry(sex_string).or_default() += 1;
+        }
+        println!("Octal{}: {:?}", step1, turn_move_hash);
+    }
+
+    for step1 in 0..3 {
+        let step = step1 * 2;
+        let turn_move_sexs: Vec::<_> = path_to_end
+            .split(",").skip(0+step).step_by(6)
+            .zip(path_to_end.split(",").skip(1+step).step_by(6))
+            .zip(path_to_end.split(",").skip(2+step).step_by(6))
+            .zip(path_to_end.split(",").skip(3+step).step_by(6))
+            .zip(path_to_end.split(",").skip(4+step).step_by(6))
+            .zip(path_to_end.split(",").skip(5+step).step_by(6))
+            .map(|(((((a,b),c),d),e),f)| {(a,b,c,d,e,f)})
+            .collect();
+        let mut turn_move_hash: HashMap::<_,u8> = HashMap::new();
+        for sex in turn_move_sexs {
+            let mut sex_string = String::new();
+            sex_string.push_str(sex.0);
+            sex_string.push_str(sex.1);
+            sex_string.push_str(sex.2);
+            sex_string.push_str(sex.3);
+            sex_string.push_str(sex.4);
+            sex_string.push_str(sex.5);
+            *turn_move_hash.entry(sex_string).or_default() += 1;
+        }
+        println!("Sex{}: {:?}", step1, turn_move_hash);
+    }
+    path_to_end_flat = path_to_end_flat.split("L4L6L8L12").map(|s|{s.chars().chain("A".chars())}).flatten().collect::<String>();//A
+    path_to_end_flat = path_to_end_flat.split("R12L6L6L8").map(|s|{s.chars().chain("B".chars())}).flatten().collect::<String>();//B
+    path_to_end_flat = path_to_end_flat.split("L8R12L12").map(|s|{s.chars().chain("C".chars())}).flatten().collect::<String>();//C
+    // A "L4L6L8L12"
+    // B "R12L6L6L8"
+    // C "L8R12L12"
+    // CA' "L8R12L12L4"
+    // path_to_end_flat = path_to_end_flat.split("R12L6L6L8").map(|s|{s.chars().chain(",".chars())}).flatten().collect::<String>();//4
+    // path_to_end_flat = path_to_end_flat.split("L12R12L6L6").map(|s|{s.chars().chain(",".chars())}).flatten().collect::<String>();//4
+    // path_to_end_flat = path_to_end_flat.split("L8R12L12L4").map(|s|{s.chars().chain(",".chars())}).flatten().collect::<String>();//4
+    // path_to_end_flat = path_to_end_flat.split("L8R12L12R12").map(|s|{s.chars().chain(",".chars())}).flatten().collect::<String>();//4
+    // path_to_end_flat = path_to_end_flat.split("L6L6L8").map(|s|{s.chars().chain(",".chars())}).flatten().collect::<String>();//3
     println!("path_to_end: (sans comma) {}", path_to_end_flat); // L4L6L8L12L8R12L12L8R12L12L4L6L8L12L8R12L12R12L6L6L8L4L6L8L12R12L6L6L8L8R12L12R12L6L6L8
     let path_to_end = path_to_end_flat.chars().map(|c| {
         if c == 'R' || c == 'L' {format!(",{},",c)} else {c.to_string()}
     }).collect::<String>();
     let path_to_end: String = path_to_end.chars().skip(1).collect();
-    let turn_move_pairs: Vec::<_> = path_to_end
-        .split(",").step_by(2)
-        .zip(path_to_end.split(",").skip(1).step_by(2))
-        .collect();
-    let mut turn_move_hash: HashMap::<_,u8> = HashMap::new();
-    for pair in turn_move_pairs {
-        let mut pair_string = String::new();
-        pair_string.push_str(pair.0);
-        pair_string.push_str(pair.1);
-        *turn_move_hash.entry(pair_string).or_default() += 1;
-    }
-    println!("Pairs: {:?}", turn_move_hash);
-
-    let turn_move_quads: Vec::<_> = path_to_end
-        .split(",").step_by(4)
-        .zip(path_to_end.split(",").skip(1).step_by(4))
-        .zip(path_to_end.split(",").skip(2).step_by(4))
-        .zip(path_to_end.split(",").skip(3).step_by(4))
-        .map(|(((a,b),c),d)| {(a,b,c,d)})
-        .collect();
-    let mut turn_move_hash: HashMap::<_,u8> = HashMap::new();
-    for quad in turn_move_quads {
-        let mut quad_string = String::new();
-        quad_string.push_str(quad.0);
-        quad_string.push_str(quad.1);
-        quad_string.push_str(quad.2);
-        quad_string.push_str(quad.3);
-        *turn_move_hash.entry(quad_string).or_default() += 1;
-    }
-    println!("Quads: {:?}", turn_move_hash);
-    let turn_move_quads: Vec::<_> = path_to_end
-        .split(",").skip(0+2).step_by(4)
-        .zip(path_to_end.split(",").skip(1+2).step_by(4))
-        .zip(path_to_end.split(",").skip(2+2).step_by(4))
-        .zip(path_to_end.split(",").skip(3+2).step_by(4))
-        .map(|(((a,b),c),d)| {(a,b,c,d)})
-        .collect();
-    let mut turn_move_hash: HashMap::<_,u8> = HashMap::new();
-    for quad in turn_move_quads {
-        let mut quad_string = String::new();
-        quad_string.push_str(quad.0);
-        quad_string.push_str(quad.1);
-        quad_string.push_str(quad.2);
-        quad_string.push_str(quad.3);
-        *turn_move_hash.entry(quad_string).or_default() += 1;
-    }
-    println!("Alt Quads: {:?}", turn_move_hash);
-    let turn_move_sexs: Vec::<_> = path_to_end
-        .split(",").step_by(6)
-        .zip(path_to_end.split(",").skip(1).step_by(6))
-        .zip(path_to_end.split(",").skip(2).step_by(6))
-        .zip(path_to_end.split(",").skip(3).step_by(6))
-        .zip(path_to_end.split(",").skip(4).step_by(6))
-        .zip(path_to_end.split(",").skip(5).step_by(6))
-        .map(|(((((a,b),c),d),e),f)| {(a,b,c,d,e,f)})
-        .collect();
-    let mut turn_move_hash: HashMap::<_,u8> = HashMap::new();
-    for sex in turn_move_sexs {
-        let mut sex_string = String::new();
-        sex_string.push_str(sex.0);
-        sex_string.push_str(sex.1);
-        sex_string.push_str(sex.2);
-        sex_string.push_str(sex.3);
-        sex_string.push_str(sex.4);
-        sex_string.push_str(sex.5);
-        *turn_move_hash.entry(sex_string).or_default() += 1;
-    }
-    println!("Sexes: {:?}", turn_move_hash);
-    let turn_move_sexs: Vec::<_> = path_to_end
-        .split(",").skip(0+2).step_by(6)
-        .zip(path_to_end.split(",").skip(1+2).step_by(6))
-        .zip(path_to_end.split(",").skip(2+2).step_by(6))
-        .zip(path_to_end.split(",").skip(3+2).step_by(6))
-        .zip(path_to_end.split(",").skip(4+2).step_by(6))
-        .zip(path_to_end.split(",").skip(5+2).step_by(6))
-        .map(|(((((a,b),c),d),e),f)| {(a,b,c,d,e,f)})
-        .collect();
-    let mut turn_move_hash: HashMap::<_,u8> = HashMap::new();
-    for sex in turn_move_sexs {
-        let mut sex_string = String::new();
-        sex_string.push_str(sex.0);
-        sex_string.push_str(sex.1);
-        sex_string.push_str(sex.2);
-        sex_string.push_str(sex.3);
-        sex_string.push_str(sex.4);
-        sex_string.push_str(sex.5);
-        *turn_move_hash.entry(sex_string).or_default() += 1;
-    }
-    println!("Alt Sexes: {:?}", turn_move_hash);
-    let turn_move_sexs: Vec::<_> = path_to_end
-        .split(",").skip(0+4).step_by(6)
-        .zip(path_to_end.split(",").skip(1+4).step_by(6))
-        .zip(path_to_end.split(",").skip(2+4).step_by(6))
-        .zip(path_to_end.split(",").skip(3+4).step_by(6))
-        .zip(path_to_end.split(",").skip(4+4).step_by(6))
-        .zip(path_to_end.split(",").skip(5+4).step_by(6))
-        .map(|(((((a,b),c),d),e),f)| {(a,b,c,d,e,f)})
-        .collect();
-    let mut turn_move_hash: HashMap::<_,u8> = HashMap::new();
-    for sex in turn_move_sexs {
-        let mut sex_string = String::new();
-        sex_string.push_str(sex.0);
-        sex_string.push_str(sex.1);
-        sex_string.push_str(sex.2);
-        sex_string.push_str(sex.3);
-        sex_string.push_str(sex.4);
-        sex_string.push_str(sex.5);
-        *turn_move_hash.entry(sex_string).or_default() += 1;
-    }
-    println!("Alt Alt Sexes: {:?}", turn_move_hash);
 
     Ok(-1)
 }
