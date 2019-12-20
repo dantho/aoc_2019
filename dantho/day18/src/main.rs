@@ -156,8 +156,9 @@ fn find_accessible_keys(shared_map: &mut WorldMap, present_distance: usize, pres
     match shared_map.data.get_mut(&present_loc) {
         Some(Wall) => {return None}, // Hit a wall.  END RECURSION
         Some(Door(d)) => {
-            if DBG {println!("Found locked {:?} at {:?}", Door(*d), present_loc );}            
-            return None}, // Hit a locked door.  END RECURSION
+            if DBG {println!("Found locked {:?} at {:?}", Door(*d), present_loc );}
+            return Some(vec![SearchPath {keys: Vec::new(), door_at_end: Some(Door(*d))}])
+        }, // Hit a locked door.  END RECURSION
         Some(Empty(dist)) if *dist <= present_distance => return None, // *d <= present_distance, so been here, done that. END RECURSION
         Some(Empty(dist)) => {
             *dist = present_distance; // label present location with distance marker -- critical step! Continue searching
