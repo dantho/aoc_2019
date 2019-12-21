@@ -43,9 +43,7 @@ enum Error {
 struct Portal {
     name: String,
     outside_loc: Location,
-    outside_ejection: CardinalDirection,
     inside_loc: Option<Location>,
-    inside_ejection: Option<CardinalDirection>,
 }
 #[derive(Debug)]
 struct DonutMap {
@@ -165,14 +163,11 @@ impl<'a> DonutMap {
                             let mut name = ch.to_string();
                             name.push(*ch2);
                             if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
-                            let outside_ejection = *dir;
                             self.portals.insert(name.clone(),
                                 Portal {
                                     name,
                                     outside_loc: portal_start,
-                                    outside_ejection,
                                     inside_loc: None,
-                                    inside_ejection: None,
                                 }
                             );
                         }
@@ -192,14 +187,11 @@ impl<'a> DonutMap {
                             let mut name = ch.to_string();
                             name.push(*ch2);
                             if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
-                            let outside_ejection = *dir;
                             self.portals.insert(name.clone(),
                                 Portal {
                                     name,
                                     outside_loc: portal_start,
-                                    outside_ejection,
                                     inside_loc: None,
-                                    inside_ejection: None,
                                 }
                             );
                         }
@@ -219,14 +211,11 @@ impl<'a> DonutMap {
                             let mut name = ch.to_string();
                             name.push(*ch2);
                             if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
-                            let outside_ejection = *dir;
                             self.portals.insert(name.clone(),
                                 Portal {
                                     name,
                                     outside_loc: portal_start,
-                                    outside_ejection,
                                     inside_loc: None,
-                                    inside_ejection: None,
                                 }
                             );
                         }
@@ -246,14 +235,11 @@ impl<'a> DonutMap {
                             let mut name = ch.to_string();
                             name.push(*ch2);
                             if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
-                            let outside_ejection = *dir;
                             self.portals.insert(name.clone(),
                                 Portal {
                                     name,
                                     outside_loc: portal_start,
-                                    outside_ejection,
                                     inside_loc: None,
-                                    inside_ejection: None,
                                 }
                             );
                         }
@@ -287,7 +273,6 @@ impl<'a> DonutMap {
                                 }
                             };
                             p.inside_loc = Some(portal_start);
-                            p.inside_ejection = Some(*dir);
                         }
                     }
                 },
@@ -310,7 +295,6 @@ impl<'a> DonutMap {
                                 None => return Err(MapAssertFail {msg: format!("Found portal '{}' at {:?} inside donut, but can't it on outside.", name, loc)})
                             };
                             p.inside_loc = Some(portal_start);
-                            p.inside_ejection = Some(*dir);
                         }
                     }
                 },
@@ -333,7 +317,6 @@ impl<'a> DonutMap {
                                 None => return Err(MapAssertFail {msg: format!("Found portal '{}' at {:?} inside donut, but can't it on outside.", name, loc)})
                             };
                             p.inside_loc = Some(portal_start);
-                            p.inside_ejection = Some(*dir);
                         }
                     }
                 },
@@ -357,7 +340,6 @@ impl<'a> DonutMap {
                                 None => return Err(MapAssertFail {msg: format!("Found portal '{}' at {:?} inside donut, but can't it on outside.", name, loc)})
                             };
                             p.inside_loc = Some(portal_start);
-                            p.inside_ejection = Some(*dir);
                         }
                     }
                 },
