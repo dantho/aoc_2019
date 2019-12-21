@@ -17,21 +17,23 @@ use Error::*;
 type Location = (usize,usize);
 
 fn main() -> Result<(),Error> {
-    let filename = "ex1.txt";
+    let filename = "input.txt";
     let part1 = process_part1(filename)?;
     let part2 = 0;
-    println!("");
     println!("Part 1: Fewest steps from AA to ZZ is {}", part1 );
     println!("Part 2: TBD is {}", part2 );
     Ok(())
 }
 // How many steps does it take to get from the open tile marked AA to the open tile marked ZZ?
 fn process_part1(filename: &'static str) -> Result<usize,Error> {
-    let donut_map = DonutMap::new(filename)?;
+    let mut donut_map = DonutMap::new(filename)?;
     donut_map.redraw_screen()?;
     println!("Portals: {:?}", donut_map.portals);
     println!("Transport: {:?}", donut_map.transport);
-    let part1 = 0;
+
+    let aa_portal = donut_map.portals.get(&"AA".to_string()).unwrap();
+    let starting_loc = aa_portal.outside;
+    let part1 = donut_map.shortest_path_to_end(starting_loc, 0)?;
     Ok(part1)
 }
 #[derive(Debug)]
@@ -42,8 +44,8 @@ enum Error {
 #[derive(Debug)]
 struct Portal {
     name: String,
-    outside_loc: Location,
-    inside_loc: Option<Location>,
+    outside: Location,
+    inside: Option<Location>,
 }
 #[derive(Debug)]
 struct DonutMap {
@@ -53,7 +55,65 @@ struct DonutMap {
     donut_range: (usize,usize,usize,usize),
     donut_hole_range: (usize,usize,usize,usize),
 }
-impl<'a> DonutMap {
+impl DonutMap {
+    fn shortest_path_to_end(&mut self, where_are_you: Location, distance_to_here: usize) -> Result<usize,Error> {
+        // End recursion with any bad path or FINAL GOAL achieved.
+        let whats_underfoot = self.map_data.get_mut(&where_are_you);
+        match whats_underfoot {
+            None => Err(MapAssertFail {msg: format!("We somehow walked off the map to {:?}", where_are_you)}),
+            Some(Wall) => Ok(std::usize::MAX), // This direction is NOT the shortest path
+            Some(Empty(distance)) if *distance <= distance_to_here => Ok(std::usize::MAX), // Crossed paths. Been here done that.
+            Some(Empty(distance)) => {
+                *distance = distance_to_here; // Mark your trail -- prevent back-tracking
+                // recurse into cardinal directions
+                Ok(*[
+                    self.shortest_path_to_end(North.move_from(where_are_you), distance_to_here+1)?,
+                    self.shortest_path_to_end(South.move_from(where_are_you), distance_to_here+1)?,
+                    self.shortest_path_to_end( East.move_from(where_are_you), distance_to_here+1)?,
+                    self.shortest_path_to_end( West.move_from(where_are_you), distance_to_here+1)?,
+                ].iter().min().unwrap())
+            },
+            Some(PortalChar(_,distance)) if *distance <= distance_to_here => Ok(std::usize::MAX), // Crossed paths. Been here done that.
+            Some(PortalChar(_,distance)) => {
+                println!("Portal found at {:?}, old distance was {}, present distance is {}", where_are_you, distance, distance_to_here);
+                *distance = distance_to_here; // Mark your trail -- prevent back-tracking
+                // Determine if this Portal is THE END!  If so, return distance_to_here!!
+                // If not, PASS THROUGH the portal
+                match self.transport.get(&where_are_you) {
+                    None => Err(MapAssertFail {msg: "Portal not located???".to_string()}),
+                    Some(None) => if distance_to_here == 0 {
+                        // We're just starting out
+                        let mut output_dest = None;
+                        for dir in &[North,South,East,West] {
+                            if let Some(Empty(_)) = self.map_data.get(&dir.move_from(where_are_you)) {
+                                output_dest = Some(dir.move_from(where_are_you));
+                                break;
+                            }
+                        }
+                        match output_dest {
+                            Some(portal_output) => self.shortest_path_to_end(portal_output, distance_to_here+0),
+                            None => Err(MapAssertFail {msg: format!("We're starting in a weird place {:?}", where_are_you)}),
+                        }
+                    } else {
+                        Ok(distance_to_here - 1) // END OF LINE DETECTED!!!  Return distance_to_here
+                    }
+                    Some(Some(other_side)) => {
+                        let mut output_dest = None;
+                        for dir in &[North,South,East,West] {
+                            if let Some(Empty(_)) = self.map_data.get(&dir.move_from(*other_side)) {
+                                output_dest = Some(dir.move_from(*other_side));
+                                break;
+                            }
+                        }
+                        match output_dest {
+                            Some(portal_output) => self.shortest_path_to_end(portal_output, distance_to_here+0),
+                            None => Err(MapAssertFail {msg: format!("Portal tossed us into void?? From {:?} to {:?}", where_are_you, output_dest)}),
+                        }
+                    }
+                }
+            },
+        }
+    }
     fn new(filename: &'static str) -> Result<Self,Error> {
         let mut me = DonutMap::read_initial_map(filename)?;
         me.init_portals_from_map_data()?;
@@ -104,39 +164,39 @@ impl<'a> DonutMap {
         });
         // top, left, bottom, right
         let donut_range = (top_left.0+2, top_left.1+2, bottom_right.0-2, bottom_right.1-2);
-        let center = ((donut_range.2-donut_range.0)/2, (donut_range.3-donut_range.1)/2);
-        let donut_hole_range = (6,6,14,14);
-        //= DonutMap::find_donut_hole_range(&map_data, center);
+        let center = ((donut_range.2-donut_range.0)/2+donut_range.0, (donut_range.3-donut_range.1)/2+donut_range.1);
+        println!("center: {:?}", center);
+        let _donut_hole_range = (6,6,14,14);
+        let donut_hole_range = DonutMap::find_donut_hole_range(&map_data, center);
         let me = DonutMap {
             map_data,
             portals: BTreeMap::new(),
             transport: BTreeMap::new(),
-            donut_range, donut_hole_range, 
+            donut_range,
+            donut_hole_range, 
         };
         Ok(me)
     }
     // Search in 4 cardinal directions for donut material (a Wall or an Empty(_))
     fn find_donut_hole_range(
         map_data: &BTreeMap::<Location,MapData>,
-        somewhere_inside_the_hole: (usize,usize)
+        a_location_in_hole: (usize,usize)
     ) -> (usize,usize,usize,usize) {
         // find all 4 boundaries of the whole
         let mut boundaries = Vec::new();
         for heading in &[North, West, South, East] {
-            let mut stop_when_you_hit_donut = somewhere_inside_the_hole;
+            let mut stop_when_you_hit_donut = a_location_in_hole;
+            let mut timeout = 10_000;
             loop {
-                if let Some(item) = map_data.get(&stop_when_you_hit_donut) {
-                    match item {
-                        Empty(_)|Wall => {break;} // we hit an edge of the hole
-                        _ => {
-                            stop_when_you_hit_donut = heading.move_from(stop_when_you_hit_donut)
-                        }, // still good, keep going in loop
-                    }
-                };
+                timeout -= 1;
+                if timeout == 0 {panic!("find_donut_hole_range() produced infinite loop.");}
+                if let Some(Empty(_))|Some(Wall) = map_data.get(&stop_when_you_hit_donut) {break;}
+                stop_when_you_hit_donut = heading.move_from(stop_when_you_hit_donut);
             }
             boundaries.push(stop_when_you_hit_donut);
+            println!("Stop when you hit donut: {:?}", stop_when_you_hit_donut);
         }
-        let point_range = (somewhere_inside_the_hole.0,somewhere_inside_the_hole.1,somewhere_inside_the_hole.0,somewhere_inside_the_hole.1);
+        let point_range = (a_location_in_hole.0,a_location_in_hole.1,a_location_in_hole.0,a_location_in_hole.1);
         boundaries.into_iter().fold(point_range, |range, (y,x)| {(
             if y< range.0 {y} else {range.0},
             if x< range.1 {x} else {range.1},
@@ -154,10 +214,10 @@ impl<'a> DonutMap {
                     let start_row = top-1;
                     for x in left..=right {
                         let portal_start = (start_row, x);
-                        if let Some(PortalChar(ch)) = self.map_data.get(&portal_start) {
+                        if let Some(PortalChar(ch,_)) = self.map_data.get(&portal_start) {
                             let loc = dir.reverse_from(portal_start);
                             let ch2 = match self.map_data.get(&loc) {
-                                Some(PortalChar(c)) => c,
+                                Some(PortalChar(c,_)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd char in portal name at {:?}", loc)}),
                             };
                             let mut name = ch.to_string();
@@ -166,8 +226,8 @@ impl<'a> DonutMap {
                             self.portals.insert(name.clone(),
                                 Portal {
                                     name,
-                                    outside_loc: portal_start,
-                                    inside_loc: None,
+                                    outside: portal_start,
+                                    inside: None,
                                 }
                             );
                         }
@@ -178,10 +238,10 @@ impl<'a> DonutMap {
                     let start_row = bottom+1;
                     for x in left..=right {
                         let portal_start = (start_row, x);
-                        if let Some(PortalChar(ch)) = self.map_data.get(&portal_start) {
+                        if let Some(PortalChar(ch,_)) = self.map_data.get(&portal_start) {
                             let loc = dir.reverse_from(portal_start);
                             let ch2 = match self.map_data.get(&loc) {
-                                Some(PortalChar(c)) => c,
+                                Some(PortalChar(c,_)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
                             let mut name = ch.to_string();
@@ -190,8 +250,8 @@ impl<'a> DonutMap {
                             self.portals.insert(name.clone(),
                                 Portal {
                                     name,
-                                    outside_loc: portal_start,
-                                    inside_loc: None,
+                                    outside: portal_start,
+                                    inside: None,
                                 }
                             );
                         }
@@ -202,10 +262,10 @@ impl<'a> DonutMap {
                     let start_col = left-1;
                     for y in top..=bottom {
                         let portal_start = (y, start_col);
-                        if let Some(PortalChar(ch)) = self.map_data.get(&portal_start) {
+                        if let Some(PortalChar(ch,_)) = self.map_data.get(&portal_start) {
                             let loc = dir.reverse_from(portal_start);
                             let ch2 = match self.map_data.get(&loc) {
-                                Some(PortalChar(c)) => c,
+                                Some(PortalChar(c,_)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
                             let mut name = ch.to_string();
@@ -214,8 +274,8 @@ impl<'a> DonutMap {
                             self.portals.insert(name.clone(),
                                 Portal {
                                     name,
-                                    outside_loc: portal_start,
-                                    inside_loc: None,
+                                    outside: portal_start,
+                                    inside: None,
                                 }
                             );
                         }
@@ -226,10 +286,10 @@ impl<'a> DonutMap {
                     let start_col = right+1;
                     for y in top..=bottom {
                         let portal_start = (y, start_col);
-                        if let Some(PortalChar(ch)) = self.map_data.get(&portal_start) {
+                        if let Some(PortalChar(ch,_)) = self.map_data.get(&portal_start) {
                             let loc = dir.reverse_from(portal_start);
                             let ch2 = match self.map_data.get(&loc) {
-                                Some(PortalChar(c)) => c,
+                                Some(PortalChar(c,_)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
                             let mut name = ch.to_string();
@@ -238,8 +298,8 @@ impl<'a> DonutMap {
                             self.portals.insert(name.clone(),
                                 Portal {
                                     name,
-                                    outside_loc: portal_start,
-                                    inside_loc: None,
+                                    outside: portal_start,
+                                    inside: None,
                                 }
                             );
                         }
@@ -256,10 +316,10 @@ impl<'a> DonutMap {
                     let start_row = top+1;
                     for x in left..=right {
                         let portal_start = (start_row, x);
-                        if let Some(PortalChar(ch)) = self.map_data.get(&portal_start) {
+                        if let Some(PortalChar(ch,_)) = self.map_data.get(&portal_start) {
                             let loc = dir.reverse_from(portal_start);
                             let ch2 = match self.map_data.get(&loc) {
-                                Some(PortalChar(c)) => c,
+                                Some(PortalChar(c,_)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
                             let mut name = ch.to_string();
@@ -272,7 +332,7 @@ impl<'a> DonutMap {
                                     return Err(MapAssertFail {msg: format!("Found portal '{}' at {:?} inside donut, but can't find it on outside.", name, loc)})
                                 }
                             };
-                            p.inside_loc = Some(portal_start);
+                            p.inside = Some(portal_start);
                         }
                     }
                 },
@@ -281,10 +341,10 @@ impl<'a> DonutMap {
                     let start_row = bottom-1;
                     for x in left..=right {
                         let portal_start = (start_row, x);
-                        if let Some(PortalChar(ch)) = self.map_data.get(&portal_start) {
+                        if let Some(PortalChar(ch,_)) = self.map_data.get(&portal_start) {
                             let loc = dir.reverse_from(portal_start);
                             let ch2 = match self.map_data.get(&loc) {
-                                Some(PortalChar(c)) => c,
+                                Some(PortalChar(c,_)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
                             let mut name = ch.to_string();
@@ -294,7 +354,7 @@ impl<'a> DonutMap {
                                 Some(pp) => pp,
                                 None => return Err(MapAssertFail {msg: format!("Found portal '{}' at {:?} inside donut, but can't it on outside.", name, loc)})
                             };
-                            p.inside_loc = Some(portal_start);
+                            p.inside = Some(portal_start);
                         }
                     }
                 },
@@ -303,10 +363,10 @@ impl<'a> DonutMap {
                     let start_col = left+1;
                     for y in top..=bottom {
                         let portal_start = (y, start_col);
-                        if let Some(PortalChar(ch)) = self.map_data.get(&portal_start) {
+                        if let Some(PortalChar(ch,_)) = self.map_data.get(&portal_start) {
                             let loc = dir.reverse_from(portal_start);
                             let ch2 = match self.map_data.get(&loc) {
-                                Some(PortalChar(c)) => c,
+                                Some(PortalChar(c,_)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
                             let mut name = ch.to_string();
@@ -316,7 +376,7 @@ impl<'a> DonutMap {
                                 Some(pp) => pp,
                                 None => return Err(MapAssertFail {msg: format!("Found portal '{}' at {:?} inside donut, but can't it on outside.", name, loc)})
                             };
-                            p.inside_loc = Some(portal_start);
+                            p.inside = Some(portal_start);
                         }
                     }
                 },
@@ -325,11 +385,11 @@ impl<'a> DonutMap {
                     let start_col = right-1;
                     for y in top..=bottom {
                         let portal_start = (y, start_col);
-                        if let Some(PortalChar(ch)) = self.map_data.get(&portal_start) {
+                        if let Some(PortalChar(ch,_)) = self.map_data.get(&portal_start) {
                             let loc = dir.reverse_from(portal_start);
                             println!("Reverse from {:?} is {:?} for portal char {}", portal_start, loc, ch);
                             let ch2 = match self.map_data.get(&loc) {
-                                Some(PortalChar(c)) => c,
+                                Some(PortalChar(c,_)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
                             let mut name = ch.to_string();
@@ -339,15 +399,15 @@ impl<'a> DonutMap {
                                 Some(pp) => pp,
                                 None => return Err(MapAssertFail {msg: format!("Found portal '{}' at {:?} inside donut, but can't it on outside.", name, loc)})
                             };
-                            p.inside_loc = Some(portal_start);
+                            p.inside = Some(portal_start);
                         }
                     }
                 },
             }
         }
         for (_, portal) in &mut self.portals {
-            let loc1 = portal.outside_loc;
-            if let Some(loc2) = portal.inside_loc {
+            let loc1 = portal.outside;
+            if let Some(loc2) = portal.inside {
                 self.transport.insert(loc1,Some(loc2));
                 self.transport.insert(loc2,Some(loc1));
             } else {
@@ -397,7 +457,7 @@ fn set_color(color:u8) {
 enum MapData {
     Wall,
     Empty(usize),
-    PortalChar(char),
+    PortalChar(char,usize),
 }
 // See https://jrgraphix.net/r/Unicode/2700-27BF for Dingbats in unicode
 impl MapData {
@@ -405,7 +465,7 @@ impl MapData {
         match *self {
             Empty(_) => '.',
             Wall => '#',
-            PortalChar(ch) => ch,
+            PortalChar(ch,_) => ch,
         }
     }
     fn to_string(&self) -> String {
@@ -419,7 +479,7 @@ impl TryFrom<char> for MapData {
         let status = match ch {
             mt if mt == Empty(0).to_char() => Empty(std::usize::MAX),
             w if w == Wall.to_char() => Wall,
-            p if p.is_alphabetic() && p.is_uppercase() => PortalChar(p),
+            p if p.is_alphabetic() && p.is_uppercase() => PortalChar(p,std::usize::MAX),
             _ => return Err(Error::IllegalMapData { ch }),
         };
         Ok(status)
@@ -475,11 +535,11 @@ fn test_input() -> Result<(),Error> {
 }
 #[test]
 fn test_ex1() -> Result<(),Error> {
-    assert_eq!(process_part1("ex1.txt")?, 8);
+    assert_eq!(process_part1("ex1.txt")?, 23);
     Ok(())
 }
 #[test]
 fn test_ex2() -> Result<(),Error> {
-    assert_eq!(process_part1("ex2.txt")?, 86);
+    assert_eq!(process_part1("ex2.txt")?, 58);
     Ok(())
 }
