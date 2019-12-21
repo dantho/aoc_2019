@@ -107,7 +107,7 @@ impl<'a> DonutMap {
         // top, left, bottom, right
         let donut_range = (top_left.0+2, top_left.1+2, bottom_right.0-2, bottom_right.1-2);
         let center = ((donut_range.2-donut_range.0)/2, (donut_range.3-donut_range.1)/2);
-        let donut_hole_range = (6,6,12,12);
+        let donut_hole_range = (6,6,14,14);
         //= DonutMap::find_donut_hole_range(&map_data, center);
         let me = DonutMap {
             map_data,
@@ -153,23 +153,23 @@ impl<'a> DonutMap {
             match dir {
                 // Scan for Portals at top
                 South => {
-                    let start_row = top-2;
+                    let start_row = top-1;
                     for x in left..=right {
                         let portal_start = (start_row, x);
                         if let Some(PortalChar(ch)) = self.map_data.get(&portal_start) {
-                            let loc = dir.move_from(portal_start);
+                            let loc = dir.reverse_from(portal_start);
                             let ch2 = match self.map_data.get(&loc) {
                                 Some(PortalChar(c)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd char in portal name at {:?}", loc)}),
                             };
                             let mut name = ch.to_string();
                             name.push(*ch2);
-                            if *dir == North||*dir==West {name = name.chars().rev().collect::<String>();};
+                            if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
                             let outside_ejection = *dir;
                             self.portals.insert(name.clone(),
                                 Portal {
                                     name,
-                                    outside_loc: loc,
+                                    outside_loc: portal_start,
                                     outside_ejection,
                                     inside_loc: None,
                                     inside_ejection: None,
@@ -180,23 +180,23 @@ impl<'a> DonutMap {
                 },
                 // Scan for Portals at bottom
                 North => {
-                    let start_row = bottom+2;
+                    let start_row = bottom+1;
                     for x in left..=right {
                         let portal_start = (start_row, x);
                         if let Some(PortalChar(ch)) = self.map_data.get(&portal_start) {
-                            let loc = dir.move_from(portal_start);
+                            let loc = dir.reverse_from(portal_start);
                             let ch2 = match self.map_data.get(&loc) {
                                 Some(PortalChar(c)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
                             let mut name = ch.to_string();
                             name.push(*ch2);
-                            if *dir == North||*dir==West {name = name.chars().rev().collect::<String>();};
+                            if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
                             let outside_ejection = *dir;
                             self.portals.insert(name.clone(),
                                 Portal {
                                     name,
-                                    outside_loc: loc,
+                                    outside_loc: portal_start,
                                     outside_ejection,
                                     inside_loc: None,
                                     inside_ejection: None,
@@ -207,23 +207,23 @@ impl<'a> DonutMap {
                 },
                 // Scan for Portals at left
                 East => {
-                    let start_col = left-2;
+                    let start_col = left-1;
                     for y in top..=bottom {
                         let portal_start = (y, start_col);
                         if let Some(PortalChar(ch)) = self.map_data.get(&portal_start) {
-                            let loc = dir.move_from(portal_start);
+                            let loc = dir.reverse_from(portal_start);
                             let ch2 = match self.map_data.get(&loc) {
                                 Some(PortalChar(c)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
                             let mut name = ch.to_string();
                             name.push(*ch2);
-                            if *dir == North||*dir==West {name = name.chars().rev().collect::<String>();};
+                            if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
                             let outside_ejection = *dir;
                             self.portals.insert(name.clone(),
                                 Portal {
                                     name,
-                                    outside_loc: loc,
+                                    outside_loc: portal_start,
                                     outside_ejection,
                                     inside_loc: None,
                                     inside_ejection: None,
@@ -234,23 +234,23 @@ impl<'a> DonutMap {
                 },
                 // Scan for Portals at right
                 West => {
-                    let start_col = right+2;
+                    let start_col = right+1;
                     for y in top..=bottom {
                         let portal_start = (y, start_col);
                         if let Some(PortalChar(ch)) = self.map_data.get(&portal_start) {
-                            let loc = dir.move_from(portal_start);
+                            let loc = dir.reverse_from(portal_start);
                             let ch2 = match self.map_data.get(&loc) {
                                 Some(PortalChar(c)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
                             let mut name = ch.to_string();
                             name.push(*ch2);
-                            if *dir == North||*dir==West {name = name.chars().rev().collect::<String>();};
+                            if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
                             let outside_ejection = *dir;
                             self.portals.insert(name.clone(),
                                 Portal {
                                     name,
-                                    outside_loc: loc,
+                                    outside_loc: portal_start,
                                     outside_ejection,
                                     inside_loc: None,
                                     inside_ejection: None,
@@ -267,18 +267,18 @@ impl<'a> DonutMap {
             match dir {
                 // Scan for Portals at top of donut hole
                 North => {
-                    let start_row = top+2;
+                    let start_row = top+1;
                     for x in left..=right {
                         let portal_start = (start_row, x);
                         if let Some(PortalChar(ch)) = self.map_data.get(&portal_start) {
-                            let loc = dir.move_from(portal_start);
+                            let loc = dir.reverse_from(portal_start);
                             let ch2 = match self.map_data.get(&loc) {
                                 Some(PortalChar(c)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
                             let mut name = ch.to_string();
                             name.push(*ch2);
-                            if *dir == North||*dir==West {name = name.chars().rev().collect::<String>();};
+                            if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
                             let p = match self.portals.get_mut(&name) {
                                 Some(pp) => pp,
                                 None => {
@@ -286,77 +286,78 @@ impl<'a> DonutMap {
                                     return Err(MapAssertFail {msg: format!("Found portal '{}' at {:?} inside donut, but can't find it on outside.", name, loc)})
                                 }
                             };
-                            p.outside_loc = loc;
-                            p.outside_ejection = *dir;
+                            p.inside_loc = Some(portal_start);
+                            p.inside_ejection = Some(*dir);
                         }
                     }
                 },
                 // Scan for Portals at bottom of donut hole
                 South => {
-                    let start_row = bottom-2;
+                    let start_row = bottom-1;
                     for x in left..=right {
                         let portal_start = (start_row, x);
                         if let Some(PortalChar(ch)) = self.map_data.get(&portal_start) {
-                            let loc = dir.move_from(portal_start);
+                            let loc = dir.reverse_from(portal_start);
                             let ch2 = match self.map_data.get(&loc) {
                                 Some(PortalChar(c)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
                             let mut name = ch.to_string();
                             name.push(*ch2);
-                            if *dir == North||*dir==West {name = name.chars().rev().collect::<String>();};
+                            if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
                             let p = match self.portals.get_mut(&name) {
                                 Some(pp) => pp,
                                 None => return Err(MapAssertFail {msg: format!("Found portal '{}' at {:?} inside donut, but can't it on outside.", name, loc)})
                             };
-                            p.outside_loc = loc;
-                            p.outside_ejection = *dir;
+                            p.inside_loc = Some(portal_start);
+                            p.inside_ejection = Some(*dir);
                         }
                     }
                 },
                 // Scan for Portals at left of donut hole
                 West => {
-                    let start_col = left+2;
+                    let start_col = left+1;
                     for y in top..=bottom {
                         let portal_start = (y, start_col);
                         if let Some(PortalChar(ch)) = self.map_data.get(&portal_start) {
-                            let loc = dir.move_from(portal_start);
+                            let loc = dir.reverse_from(portal_start);
                             let ch2 = match self.map_data.get(&loc) {
                                 Some(PortalChar(c)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
                             let mut name = ch.to_string();
                             name.push(*ch2);
-                            if *dir == North||*dir==West {name = name.chars().rev().collect::<String>();};
+                            if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
                             let p = match self.portals.get_mut(&name) {
                                 Some(pp) => pp,
                                 None => return Err(MapAssertFail {msg: format!("Found portal '{}' at {:?} inside donut, but can't it on outside.", name, loc)})
                             };
-                            p.outside_loc = loc;
-                            p.outside_ejection = *dir;
+                            p.inside_loc = Some(portal_start);
+                            p.inside_ejection = Some(*dir);
                         }
                     }
                 },
                 // Scan for Portals at right of donut hole
                 East => {
-                    let start_col = right-2;
+                    let start_col = right-1;
                     for y in top..=bottom {
                         let portal_start = (y, start_col);
                         if let Some(PortalChar(ch)) = self.map_data.get(&portal_start) {
-                            let loc = dir.move_from(portal_start);
+                            let loc = dir.reverse_from(portal_start);
+                            println!("Reverse from {:?} is {:?} for portal char {}", portal_start, loc, ch);
                             let ch2 = match self.map_data.get(&loc) {
                                 Some(PortalChar(c)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
                             let mut name = ch.to_string();
                             name.push(*ch2);
-                            if *dir == North||*dir==West {name = name.chars().rev().collect::<String>();};
+                            if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
                             let p = match self.portals.get_mut(&name) {
                                 Some(pp) => pp,
                                 None => return Err(MapAssertFail {msg: format!("Found portal '{}' at {:?} inside donut, but can't it on outside.", name, loc)})
                             };
-                            p.outside_loc = loc;
-                            p.outside_ejection = *dir;
+                            p.inside_loc = Some(portal_start);
+                            p.inside_ejection = Some(*dir);
                         }
                     }
                 },
@@ -456,6 +457,14 @@ impl CardinalDirection {
             South => (loc.0+1, loc.1),
             West => (loc.0, loc.1-1),
             East => (loc.0, loc.1+1),
+        }
+    }
+    fn reverse_from(&self, loc: Location) -> Location {
+        match self {
+            South => (loc.0-1, loc.1),
+            North => (loc.0+1, loc.1),
+            East => (loc.0, loc.1-1),
+            West => (loc.0, loc.1+1),
         }
     }
 }
