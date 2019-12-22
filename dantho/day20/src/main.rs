@@ -9,30 +9,44 @@ use std::io::prelude::*;
 use std::io::{BufReader, Write, stdout};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Debug;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use CardinalDirection::*;
 use MapData::*;
 use Error::*;
+use std::thread;
 
-type Location = (usize,usize);
+const STACK_SIZE: usize = 4 * 1024 * 1024;
 
-fn main() -> Result<(),Error> {
+fn run() -> Result<(),Error> {
     let filename = "input.txt";
     let part1 = process_part1(filename)?;
     let part2 = 0;
     println!("Part 1: Fewest steps from AA to ZZ is {}", part1 );
     println!("Part 2: TBD is {}", part2 );
     Ok(())
+} 
+
+fn main() {
+    // Spawn thread with explicit stack size
+    let child = thread::Builder::new()
+        .stack_size(STACK_SIZE)
+        .spawn(run)
+        .unwrap();
+
+    // Wait for thread to join
+    child.join().unwrap();
 }
+
+type Location = (usize,usize);
+
 // How many steps does it take to get from the open tile marked AA to the open tile marked ZZ?
 fn process_part1(filename: &'static str) -> Result<usize,Error> {
     let mut donut_map = DonutMap::new(filename)?;
-    donut_map.redraw_screen()?;
+    // donut_map.redraw_screen()?;
     println!("Portals: {:?}", donut_map.portals);
     println!("Transport: {:?}", donut_map.transport);
-
-    let aa_portal = donut_map.portals.get(&"AA".to_string()).unwrap();
-    let starting_loc = aa_portal.outside;
+    let aa_portal = donut_map.find_portals_by_name("AA").pop().unwrap();
+    let starting_loc = aa_portal.location;
     let part1 = donut_map.shortest_path_to_end(starting_loc, 0)?;
     Ok(part1)
 }
@@ -41,23 +55,42 @@ enum Error {
     IllegalMapData {ch: char},
     MapAssertFail {msg: String},
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Portal {
     name: String,
-    outside: Location,
-    inside: Option<Location>,
+    location: Location,
+    is_outer: bool,
+    ejection_direction: CardinalDirection,
 }
 #[derive(Debug)]
 struct DonutMap {
-    portals: BTreeMap<String, Portal>,
+    portals: BTreeMap<(String,Location), Portal>,
     transport: BTreeMap<Location, Option<Location>>,
     map_data: BTreeMap<Location,MapData>,
     donut_range: (usize,usize,usize,usize),
     donut_hole_range: (usize,usize,usize,usize),
 }
 impl DonutMap {
+    fn find_portal_by_loc(&self, loc: &Location) -> Option<&Portal> {
+        for ((_,_),p) in &self.portals {
+            if p.location == *loc {return Some(p)}
+        }
+        None
+    }
+    fn find_portals_by_name(&self, name: &str) -> Vec<&Portal> {
+        self.portals.iter().filter_map(|((_,_),p)|{
+            if p.name == name {Some(p)} else {None}
+        }).collect()
+    }
+    // fn find_connected_portals(&mut self, where_are_you: Location, distance_to_here: usize) -> Result<Vec<(String, Location)>> {
+
+    // }
     fn shortest_path_to_end(&mut self, where_are_you: Location, distance_to_here: usize) -> Result<usize,Error> {
         // End recursion with any bad path or FINAL GOAL achieved.
+        let debug_maybe_portal = match self.find_portal_by_loc(&where_are_you) {
+            Some(p) => Some(p.clone()),
+            _ => None,
+        };
         let whats_underfoot = self.map_data.get_mut(&where_are_you);
         match whats_underfoot {
             None => Err(MapAssertFail {msg: format!("We somehow walked off the map to {:?}", where_are_you)}),
@@ -67,48 +100,32 @@ impl DonutMap {
                 *distance = distance_to_here; // Mark your trail -- prevent back-tracking
                 // recurse into cardinal directions
                 Ok(*[
-                    self.shortest_path_to_end(North.move_from(where_are_you), distance_to_here+1)?,
-                    self.shortest_path_to_end(South.move_from(where_are_you), distance_to_here+1)?,
-                    self.shortest_path_to_end( East.move_from(where_are_you), distance_to_here+1)?,
-                    self.shortest_path_to_end( West.move_from(where_are_you), distance_to_here+1)?,
+                    self.shortest_path_to_end(North.move_from(&where_are_you), distance_to_here+1)?,
+                    self.shortest_path_to_end(South.move_from(&where_are_you), distance_to_here+1)?,
+                    self.shortest_path_to_end( East.move_from(&where_are_you), distance_to_here+1)?,
+                    self.shortest_path_to_end( West.move_from(&where_are_you), distance_to_here+1)?,
                 ].iter().min().unwrap())
             },
             Some(PortalChar(_,distance)) if *distance <= distance_to_here => Ok(std::usize::MAX), // Crossed paths. Been here done that.
             Some(PortalChar(_,distance)) => {
-                println!("Portal found at {:?}, old distance was {}, present distance is {}", where_are_you, distance, distance_to_here);
+                println!("Portal {} found at {:?}, old distance was {}, present distance is {}", debug_maybe_portal.unwrap().name, where_are_you, distance, distance_to_here);
                 *distance = distance_to_here; // Mark your trail -- prevent back-tracking
                 // Determine if this Portal is THE END!  If so, return distance_to_here!!
                 // If not, PASS THROUGH the portal
                 match self.transport.get(&where_are_you) {
                     None => Err(MapAssertFail {msg: "Portal not located???".to_string()}),
-                    Some(None) => if distance_to_here == 0 {
-                        // We're just starting out
-                        let mut output_dest = None;
-                        for dir in &[North,South,East,West] {
-                            if let Some(Empty(_)) = self.map_data.get(&dir.move_from(where_are_you)) {
-                                output_dest = Some(dir.move_from(where_are_you));
-                                break;
-                            }
+                    Some(None) => {
+                        if distance_to_here == 0 {
+                            // We're just starting out (This is portal AA)
+                            let starting_loc = self.find_portal_by_loc(&where_are_you).unwrap().ejection_direction.move_from(&where_are_you);
+                            self.shortest_path_to_end(starting_loc, 0)
+                        } else {
+                            Ok(distance_to_here - 1) // END OF LINE DETECTED!!!(This is portal ZZ)  Return distance_to_here
                         }
-                        match output_dest {
-                            Some(portal_output) => self.shortest_path_to_end(portal_output, distance_to_here+0),
-                            None => Err(MapAssertFail {msg: format!("We're starting in a weird place {:?}", where_are_you)}),
-                        }
-                    } else {
-                        Ok(distance_to_here - 1) // END OF LINE DETECTED!!!  Return distance_to_here
                     }
                     Some(Some(other_side)) => {
-                        let mut output_dest = None;
-                        for dir in &[North,South,East,West] {
-                            if let Some(Empty(_)) = self.map_data.get(&dir.move_from(*other_side)) {
-                                output_dest = Some(dir.move_from(*other_side));
-                                break;
-                            }
-                        }
-                        match output_dest {
-                            Some(portal_output) => self.shortest_path_to_end(portal_output, distance_to_here+0),
-                            None => Err(MapAssertFail {msg: format!("Portal tossed us into void?? From {:?} to {:?}", where_are_you, output_dest)}),
-                        }
+                        let mut output_dest = self.find_portal_by_loc(other_side).unwrap().ejection_direction.move_from(other_side);
+                        self.shortest_path_to_end(output_dest, distance_to_here+0)
                     }
                 }
             },
@@ -191,7 +208,7 @@ impl DonutMap {
                 timeout -= 1;
                 if timeout == 0 {panic!("find_donut_hole_range() produced infinite loop.");}
                 if let Some(Empty(_))|Some(Wall) = map_data.get(&stop_when_you_hit_donut) {break;}
-                stop_when_you_hit_donut = heading.move_from(stop_when_you_hit_donut);
+                stop_when_you_hit_donut = heading.move_from(&stop_when_you_hit_donut);
             }
             boundaries.push(stop_when_you_hit_donut);
             println!("Stop when you hit donut: {:?}", stop_when_you_hit_donut);
@@ -223,11 +240,12 @@ impl DonutMap {
                             let mut name = ch.to_string();
                             name.push(*ch2);
                             if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
-                            self.portals.insert(name.clone(),
+                            self.portals.insert((name.clone(),portal_start),
                                 Portal {
                                     name,
-                                    outside: portal_start,
-                                    inside: None,
+                                    location: portal_start,
+                                    is_outer: true,
+                                    ejection_direction: *dir,
                                 }
                             );
                         }
@@ -247,11 +265,12 @@ impl DonutMap {
                             let mut name = ch.to_string();
                             name.push(*ch2);
                             if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
-                            self.portals.insert(name.clone(),
+                            self.portals.insert((name.clone(),portal_start),
                                 Portal {
                                     name,
-                                    outside: portal_start,
-                                    inside: None,
+                                    location: portal_start,
+                                    is_outer: true,
+                                    ejection_direction: *dir,
                                 }
                             );
                         }
@@ -271,11 +290,12 @@ impl DonutMap {
                             let mut name = ch.to_string();
                             name.push(*ch2);
                             if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
-                            self.portals.insert(name.clone(),
+                            self.portals.insert((name.clone(),portal_start),
                                 Portal {
                                     name,
-                                    outside: portal_start,
-                                    inside: None,
+                                    location: portal_start,
+                                    is_outer: true,
+                                    ejection_direction: *dir,
                                 }
                             );
                         }
@@ -295,11 +315,12 @@ impl DonutMap {
                             let mut name = ch.to_string();
                             name.push(*ch2);
                             if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
-                            self.portals.insert(name.clone(),
+                            self.portals.insert((name.clone(),portal_start),
                                 Portal {
                                     name,
-                                    outside: portal_start,
-                                    inside: None,
+                                    location: portal_start,
+                                    is_outer: true,
+                                    ejection_direction: *dir,
                                 }
                             );
                         }
@@ -325,14 +346,14 @@ impl DonutMap {
                             let mut name = ch.to_string();
                             name.push(*ch2);
                             if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
-                            let p = match self.portals.get_mut(&name) {
-                                Some(pp) => pp,
-                                None => {
-                                    println!("Portals just before error: {:?}", &self.portals);
-                                    return Err(MapAssertFail {msg: format!("Found portal '{}' at {:?} inside donut, but can't find it on outside.", name, loc)})
+                            self.portals.insert((name.clone(),portal_start),
+                                Portal {
+                                    name,
+                                    location: portal_start,
+                                    is_outer: false,
+                                    ejection_direction: *dir,
                                 }
-                            };
-                            p.inside = Some(portal_start);
+                            );
                         }
                     }
                 },
@@ -350,11 +371,14 @@ impl DonutMap {
                             let mut name = ch.to_string();
                             name.push(*ch2);
                             if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
-                            let p = match self.portals.get_mut(&name) {
-                                Some(pp) => pp,
-                                None => return Err(MapAssertFail {msg: format!("Found portal '{}' at {:?} inside donut, but can't it on outside.", name, loc)})
-                            };
-                            p.inside = Some(portal_start);
+                            self.portals.insert((name.clone(),portal_start),
+                                Portal {
+                                    name,
+                                    location: portal_start,
+                                    is_outer: false,
+                                    ejection_direction: *dir,
+                                }
+                            );
                         }
                     }
                 },
@@ -372,11 +396,14 @@ impl DonutMap {
                             let mut name = ch.to_string();
                             name.push(*ch2);
                             if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
-                            let p = match self.portals.get_mut(&name) {
-                                Some(pp) => pp,
-                                None => return Err(MapAssertFail {msg: format!("Found portal '{}' at {:?} inside donut, but can't it on outside.", name, loc)})
-                            };
-                            p.inside = Some(portal_start);
+                            self.portals.insert((name.clone(),portal_start),
+                                Portal {
+                                    name,
+                                    location: portal_start,
+                                    is_outer: false,
+                                    ejection_direction: *dir,
+                                }
+                            );
                         }
                     }
                 },
@@ -395,23 +422,28 @@ impl DonutMap {
                             let mut name = ch.to_string();
                             name.push(*ch2);
                             if *dir == South||*dir==East {name = name.chars().rev().collect::<String>();};
-                            let p = match self.portals.get_mut(&name) {
-                                Some(pp) => pp,
-                                None => return Err(MapAssertFail {msg: format!("Found portal '{}' at {:?} inside donut, but can't it on outside.", name, loc)})
-                            };
-                            p.inside = Some(portal_start);
+                            self.portals.insert((name.clone(),portal_start),
+                                Portal {
+                                    name,
+                                    location: portal_start,
+                                    is_outer: false,
+                                    ejection_direction: *dir,
+                                }
+                            );
                         }
                     }
                 },
             }
         }
-        for (_, portal) in &mut self.portals {
-            let loc1 = portal.outside;
-            if let Some(loc2) = portal.inside {
-                self.transport.insert(loc1,Some(loc2));
-                self.transport.insert(loc2,Some(loc1));
-            } else {
-                self.transport.insert(loc1, None);
+        let unique_portal_names = self.portals.iter().map(|((s,_),_)|{s}).collect::<HashSet<&String>>();
+        println!("Found {} unique names in {} portals", unique_portal_names.len(), self.portals.len() );
+        for name in unique_portal_names {
+            let mut maybe_two: Vec<_> = self.portals.iter().filter_map(|((n,loc),_)|if n==name {Some(loc)} else {None}).collect();
+            let one = *maybe_two.pop().unwrap();
+            let two = match maybe_two.pop() {Some(loc) => Some(*loc), None=>None,};
+            self.transport.insert(one, two);
+            if let Some(second) = two {
+                self.transport.insert(second, Some(one));
             }
         }
         Ok(())
@@ -493,7 +525,7 @@ enum CardinalDirection {
     East=4,
 }
 impl CardinalDirection {
-    fn move_from(&self, loc: Location) -> Location {
+    fn move_from(&self, loc: &Location) -> Location {
         match self {
             North => (loc.0-1, loc.1),
             South => (loc.0+1, loc.1),
