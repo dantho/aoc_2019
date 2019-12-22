@@ -66,11 +66,18 @@ struct Portal {
 struct DonutMap {
     portals: BTreeMap<(String,Location), Portal>,
     transport: BTreeMap<Location, Option<Location>>,
-    map_data: BTreeMap<Location,MapData>,
+    maps: Vec<BTreeMap<Location,MapData>>,
     donut_range: (usize,usize,usize,usize),
     donut_hole_range: (usize,usize,usize,usize),
+    stack_depth: usize,
 }
 impl DonutMap {
+    fn map_data(&self) -> &BTreeMap<Location,MapData> {
+        &self.maps[self.stack_depth]
+    }
+    fn map_data_mut(&mut self) -> &mut BTreeMap<Location,MapData> {
+        &mut self.maps[self.stack_depth]
+    }
     fn find_portal_by_loc(&self, loc: &Location) -> Option<&Portal> {
         for ((_,_),p) in &self.portals {
             if p.location == *loc {return Some(p)}
@@ -91,7 +98,7 @@ impl DonutMap {
             Some(p) => Some(p.clone()),
             _ => None,
         };
-        let whats_underfoot = self.map_data.get_mut(&where_are_you);
+        let whats_underfoot = self.map_data_mut().get_mut(&where_are_you);
         match whats_underfoot {
             None => Err(MapAssertFail {msg: format!("We somehow walked off the map to {:?}", where_are_you)}),
             Some(Wall) => Ok(std::usize::MAX), // This direction is NOT the shortest path
@@ -142,16 +149,16 @@ impl DonutMap {
             (y+1,0),(y+1,1),(y+2,0),(y+2,1),
             (y+1,x+1),(y+1,x+2),(y+2,x+1),(y+2,x+2),
         ] {
-            match me.map_data.get(corner) {
+            match me.map_data().get(corner) {
                 None => (),
                 Some(unexpected) => return Err(MapAssertFail {msg: format!("Expected nothing at {:?}, found {:?}", *corner, unexpected)}),
             }
         }
-        match me.map_data.get(&(2,2)) {
+        match me.map_data().get(&(2,2)) {
             Some(Wall) => (),
             _ => return Err(MapAssertFail {msg: format!("Expected corner at {:?}", (2,2))}),
         }
-        match me.map_data.get(&(y-2,x-2)) {
+        match me.map_data().get(&(y-2,x-2)) {
             Some(Wall) => (),
             _ => return Err(MapAssertFail {msg: format!("Expected corner at {:?}", (y-2,x-2))}),
         }
@@ -186,11 +193,12 @@ impl DonutMap {
         let _donut_hole_range = (6,6,14,14);
         let donut_hole_range = DonutMap::find_donut_hole_range(&map_data, center);
         let me = DonutMap {
-            map_data,
+            maps: vec![map_data],
             portals: BTreeMap::new(),
             transport: BTreeMap::new(),
             donut_range,
             donut_hole_range, 
+            stack_depth: 0,
         };
         Ok(me)
     }
@@ -231,9 +239,9 @@ impl DonutMap {
                     let start_row = top-1;
                     for x in left..=right {
                         let portal_start = (start_row, x);
-                        if let Some(PortalChar(ch,_)) = self.map_data.get(&portal_start) {
+                        if let Some(PortalChar(ch,_)) = self.map_data().get(&portal_start) {
                             let loc = dir.reverse_from(portal_start);
-                            let ch2 = match self.map_data.get(&loc) {
+                            let ch2 = match self.map_data().get(&loc) {
                                 Some(PortalChar(c,_)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd char in portal name at {:?}", loc)}),
                             };
@@ -256,9 +264,9 @@ impl DonutMap {
                     let start_row = bottom+1;
                     for x in left..=right {
                         let portal_start = (start_row, x);
-                        if let Some(PortalChar(ch,_)) = self.map_data.get(&portal_start) {
+                        if let Some(PortalChar(ch,_)) = self.map_data().get(&portal_start) {
                             let loc = dir.reverse_from(portal_start);
-                            let ch2 = match self.map_data.get(&loc) {
+                            let ch2 = match self.map_data().get(&loc) {
                                 Some(PortalChar(c,_)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
@@ -281,9 +289,9 @@ impl DonutMap {
                     let start_col = left-1;
                     for y in top..=bottom {
                         let portal_start = (y, start_col);
-                        if let Some(PortalChar(ch,_)) = self.map_data.get(&portal_start) {
+                        if let Some(PortalChar(ch,_)) = self.map_data().get(&portal_start) {
                             let loc = dir.reverse_from(portal_start);
-                            let ch2 = match self.map_data.get(&loc) {
+                            let ch2 = match self.map_data().get(&loc) {
                                 Some(PortalChar(c,_)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
@@ -306,9 +314,9 @@ impl DonutMap {
                     let start_col = right+1;
                     for y in top..=bottom {
                         let portal_start = (y, start_col);
-                        if let Some(PortalChar(ch,_)) = self.map_data.get(&portal_start) {
+                        if let Some(PortalChar(ch,_)) = self.map_data().get(&portal_start) {
                             let loc = dir.reverse_from(portal_start);
-                            let ch2 = match self.map_data.get(&loc) {
+                            let ch2 = match self.map_data().get(&loc) {
                                 Some(PortalChar(c,_)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
@@ -337,9 +345,9 @@ impl DonutMap {
                     let start_row = top+1;
                     for x in left..=right {
                         let portal_start = (start_row, x);
-                        if let Some(PortalChar(ch,_)) = self.map_data.get(&portal_start) {
+                        if let Some(PortalChar(ch,_)) = self.map_data().get(&portal_start) {
                             let loc = dir.reverse_from(portal_start);
-                            let ch2 = match self.map_data.get(&loc) {
+                            let ch2 = match self.map_data().get(&loc) {
                                 Some(PortalChar(c,_)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
@@ -362,9 +370,9 @@ impl DonutMap {
                     let start_row = bottom-1;
                     for x in left..=right {
                         let portal_start = (start_row, x);
-                        if let Some(PortalChar(ch,_)) = self.map_data.get(&portal_start) {
+                        if let Some(PortalChar(ch,_)) = self.map_data().get(&portal_start) {
                             let loc = dir.reverse_from(portal_start);
-                            let ch2 = match self.map_data.get(&loc) {
+                            let ch2 = match self.map_data().get(&loc) {
                                 Some(PortalChar(c,_)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
@@ -387,9 +395,9 @@ impl DonutMap {
                     let start_col = left+1;
                     for y in top..=bottom {
                         let portal_start = (y, start_col);
-                        if let Some(PortalChar(ch,_)) = self.map_data.get(&portal_start) {
+                        if let Some(PortalChar(ch,_)) = self.map_data().get(&portal_start) {
                             let loc = dir.reverse_from(portal_start);
-                            let ch2 = match self.map_data.get(&loc) {
+                            let ch2 = match self.map_data().get(&loc) {
                                 Some(PortalChar(c,_)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
@@ -412,10 +420,10 @@ impl DonutMap {
                     let start_col = right-1;
                     for y in top..=bottom {
                         let portal_start = (y, start_col);
-                        if let Some(PortalChar(ch,_)) = self.map_data.get(&portal_start) {
+                        if let Some(PortalChar(ch,_)) = self.map_data().get(&portal_start) {
                             let loc = dir.reverse_from(portal_start);
                             println!("Reverse from {:?} is {:?} for portal char {}", portal_start, loc, ch);
-                            let ch2 = match self.map_data.get(&loc) {
+                            let ch2 = match self.map_data().get(&loc) {
                                 Some(PortalChar(c,_)) => c,
                                 _ => return Err(MapAssertFail {msg: format!("Can't find 2nd half of portal name at {:?}", loc)}),
                             };
@@ -450,7 +458,7 @@ impl DonutMap {
     }
     fn draw_location(&self, loc: Location) -> Result<(),Error> {
         set_cursor_loc(loc.0, loc.1);
-        let map_item = match self.map_data.get(&loc) {
+        let map_item = match self.map_data().get(&loc) {
             None => ' ',
             Some(data) => data.to_char(),
         };
@@ -461,7 +469,7 @@ impl DonutMap {
         print(ESC_CLS); // clear screen, reset cursor
         print(ESC_CURSOR_OFF); // Turn OFF cursor
         // print(ESC_CURSOR_ON); // Turn ON cursor
-        for (loc, _) in &self.map_data {
+        for (loc, _) in &self.maps[0] {
             self.draw_location(*loc)?;
         }
         println!("");
