@@ -18,7 +18,7 @@ use std::thread;
 const STACK_SIZE: usize = 4 * 1024 * 1024;
 
 fn run() -> Result<(),Error> {
-    let filename = "input.txt";
+    let filename = "ex2.txt";
     let part1 = process_part1(filename)?;
     let part2 = 0;
     println!("Part 1: Fewest steps from AA to ZZ is {}", part1 );
@@ -42,9 +42,20 @@ type Location = (usize,usize);
 // How many steps does it take to get from the open tile marked AA to the open tile marked ZZ?
 fn process_part1(filename: &'static str) -> Result<usize,Error> {
     let mut donut_map = DonutMap::new(filename)?;
-    // donut_map.redraw_screen()?;
-    println!("Portals: {:?}", donut_map.portals);
-    println!("Transport: {:?}", donut_map.transport);
+    donut_map.redraw_screen()?;
+    for p in &donut_map.portals {
+        match p {
+            (_, p) => println!("{:?}", p),
+        }
+    }
+    for t in &donut_map.transport {
+        match t {
+            (from, to) => {
+                let p_name = &donut_map.find_portal_by_loc(from).unwrap().name;
+                println!("{} at {:?} warps to {:?}", p_name, from, to );
+            }
+        }
+    }
     let aa_portal = donut_map.find_portals_by_name("AA").pop().unwrap();
     let starting_loc = aa_portal.location;
     let part1 = donut_map.shortest_path_to_end(starting_loc, 0)?;
@@ -72,6 +83,33 @@ struct DonutMap {
     stack_depth: usize,
 }
 impl DonutMap {
+    fn go_up_one_level(&mut self) -> usize {
+        if self.stack_depth == 0 {panic!("We're raising the roof here!")}
+        println!("         ...up");
+        println!("   ...up... ");
+        println!("Up... ");
+        self.stack_depth -= 1;
+        self.stack_depth
+    }
+    fn go_down_one_level(&mut self) -> usize {
+        println!("Down, ...");
+        if self.stack_depth == self.maps.len()-1 {
+            // We need to create a new (lower) level!
+            let mut new_level = self.map_data().clone();
+            // clear distances on new layer
+            println!("   ...down, ...");
+            for (_,item) in &mut new_level {
+                match item {
+                    Empty(d) => *d = std::usize::MAX,
+                    _ => (),
+                }
+            };
+            self.maps.push(new_level);
+            self.stack_depth += 1;
+        }
+        println!("            ...down");
+        self.stack_depth
+    }
     fn map_data(&self) -> &BTreeMap<Location,MapData> {
         &self.maps[self.stack_depth]
     }
@@ -89,9 +127,6 @@ impl DonutMap {
             if p.name == name {Some(p)} else {None}
         }).collect()
     }
-    // fn find_connected_portals(&mut self, where_are_you: Location, distance_to_here: usize) -> Result<Vec<(String, Location)>> {
-
-    // }
     fn shortest_path_to_end(&mut self, where_are_you: Location, distance_to_here: usize) -> Result<usize,Error> {
         // End recursion with any bad path or FINAL GOAL achieved.
         let debug_maybe_portal = match self.find_portal_by_loc(&where_are_you) {
@@ -106,34 +141,62 @@ impl DonutMap {
             Some(Empty(distance)) => {
                 *distance = distance_to_here; // Mark your trail -- prevent back-tracking
                 // recurse into cardinal directions
-                Ok(*[
-                    self.shortest_path_to_end(North.move_from(&where_are_you), distance_to_here+1)?,
-                    self.shortest_path_to_end(South.move_from(&where_are_you), distance_to_here+1)?,
-                    self.shortest_path_to_end( East.move_from(&where_are_you), distance_to_here+1)?,
-                    self.shortest_path_to_end( West.move_from(&where_are_you), distance_to_here+1)?,
-                ].iter().min().unwrap())
+                let saved_depth = self.stack_depth;
+                let n = self.shortest_path_to_end(North.move_from(&where_are_you), distance_to_here+1)?;
+                self.stack_depth = saved_depth;
+                let s = self.shortest_path_to_end(South.move_from(&where_are_you), distance_to_here+1)?;
+                self.stack_depth = saved_depth;
+                let e = self.shortest_path_to_end( East.move_from(&where_are_you), distance_to_here+1)?;
+                self.stack_depth = saved_depth;
+                let w = self.shortest_path_to_end( West.move_from(&where_are_you), distance_to_here+1)?;
+                self.stack_depth = saved_depth;
+                Ok(*[n,s,e,w].iter().min().unwrap())
             },
-            Some(PortalChar(_,distance)) if *distance <= distance_to_here => Ok(std::usize::MAX), // Crossed paths. Been here done that.
             Some(PortalChar(_,distance)) => {
-                println!("Portal {} found at {:?}, old distance was {}, present distance is {}", debug_maybe_portal.unwrap().name, where_are_you, distance, distance_to_here);
+                if *distance <= distance_to_here {return Ok(std::usize::MAX);} // Crossed paths. Been here done that.
+                println!("Portal {} found at {:?}, distance is {} (was {})", debug_maybe_portal.unwrap().name, where_are_you, distance_to_here, distance);
                 *distance = distance_to_here; // Mark your trail -- prevent back-tracking
                 // Determine if this Portal is THE END!  If so, return distance_to_here!!
                 // If not, PASS THROUGH the portal
-                match self.transport.get(&where_are_you) {
-                    None => Err(MapAssertFail {msg: "Portal not located???".to_string()}),
-                    Some(None) => {
+                let destination_location = match self.transport.get(&where_are_you) {
+                    Some(maybe_destination) => *maybe_destination,
+                    None => return Err(MapAssertFail {msg: "Portal not located???".to_string()}),
+                };
+                println!("Next stop should be {:?}", destination_location);
+                match destination_location {
+                    None => {
                         if distance_to_here == 0 {
-                            // We're just starting out (This is portal AA)
+                            // Portal AA -- We're just starting out
                             let starting_loc = self.find_portal_by_loc(&where_are_you).unwrap().ejection_direction.move_from(&where_are_you);
+                            assert_eq!(self.stack_depth, 0);
                             self.shortest_path_to_end(starting_loc, 0)
                         } else {
-                            Ok(distance_to_here - 1) // END OF LINE DETECTED!!!(This is portal ZZ)  Return distance_to_here
+                            // Portal ZZ -- DESTINATION REACHED.  Return distance_to_here to end recursion finally.
+                            if 0 == self.stack_depth {
+                                println!("and this branch is DONE!");
+                                Ok(distance_to_here - 1) // We're done!
+                            } else {
+                                // inner portals
+                                println!("but this is effectively a wall right now");
+                                Ok(std::usize::MAX) // [Effectively] Hit a wall! AA and ZZ act like walls on all but outer layer
+                            }
                         }
-                    }
-                    Some(Some(other_side)) => {
-                        let mut output_dest = self.find_portal_by_loc(other_side).unwrap().ejection_direction.move_from(other_side);
+                    },
+                    Some(other_side) => {
+                        let (destination_is_outer,ejection_direction) = match self.find_portal_by_loc(&other_side).unwrap() {
+                            p => (p.is_outer, p.ejection_direction)
+                        };
+                        println!("which is the {}-side of the portal heading {:?}", if destination_is_outer {"outer"} else {"inner"}, ejection_direction);
+                        // Outer portals act like walls on top layer
+                        if 0 == self.stack_depth && !destination_is_outer {
+                            println!("Hit an effective wall, bailing out.");
+                            return Ok(std::usize::MAX);
+                        }
+                        let _output_depth = if destination_is_outer {self.go_down_one_level()} else {self.go_up_one_level()};
+                        println!("----------------------");
+                        let output_dest = ejection_direction.move_from(&other_side);
                         self.shortest_path_to_end(output_dest, distance_to_here+0)
-                    }
+                    },
                 }
             },
         }
@@ -443,12 +506,13 @@ impl DonutMap {
                 },
             }
         }
-        let unique_portal_names = self.portals.iter().map(|((s,_),_)|{s}).collect::<HashSet<&String>>();
+        let mut unique_portal_names = self.portals.iter().map(|((s,_),_)|{s}).collect::<HashSet<&String>>();
         println!("Found {} unique names in {} portals", unique_portal_names.len(), self.portals.len() );
         for name in unique_portal_names {
             let mut maybe_two: Vec<_> = self.portals.iter().filter_map(|((n,loc),_)|if n==name {Some(loc)} else {None}).collect();
             let one = *maybe_two.pop().unwrap();
             let two = match maybe_two.pop() {Some(loc) => Some(*loc), None=>None,};
+            println!("Portal {}: {:?} to {:?}", name, one, two );
             self.transport.insert(one, two);
             if let Some(second) = two {
                 self.transport.insert(second, Some(one));
@@ -581,5 +645,20 @@ fn test_ex1() -> Result<(),Error> {
 #[test]
 fn test_ex2() -> Result<(),Error> {
     assert_eq!(process_part1("ex2.txt")?, 58);
+    Ok(())
+}
+#[test]
+fn test_input_2() -> Result<(),Error> {
+    assert_eq!(process_part1("input.txt")?, 0);
+    Ok(())
+}
+#[test]
+fn test_ex1_2() -> Result<(),Error> {
+    assert_eq!(process_part1("ex1.txt")?, 26);
+    Ok(())
+}
+#[test]
+fn test_ex2_2() -> Result<(),Error> {
+    assert_eq!(process_part1("ex2.txt")?, 396);
     Ok(())
 }

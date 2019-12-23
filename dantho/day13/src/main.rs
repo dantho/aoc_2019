@@ -1,6 +1,7 @@
 /// https://adventofcode.com/2019/day/13#part2
 extern crate crossterm;
 const ESC_CLS:&'static str = "\x1B[2J";
+const ESC_CURSOR_OFF: &'static str = "\x1B[?25l";
 
 use std::fs::File;
 use std::io::prelude::*;
@@ -229,7 +230,7 @@ async fn arcade_run(mut rx: Receiver<isize>, mut tx: Sender<isize>) -> Result<is
     // Do Not Print out WHOLE SCREEN on every character change: (too slow?)
     // print!("\u{001Bc}"); // clear screen, reset cursor
     print(ESC_CLS); // clear screen, reset cursor
-
+    print(ESC_CURSOR_OFF);
     // process all messages
     loop {
         // Intcode Output
