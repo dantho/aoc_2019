@@ -1,6 +1,12 @@
 /// https://adventofcode.com/2019/day/22
+use modinverse::modinverse; // for increment_m
+
 const DECK_SIZE:usize = 10_007;
+
 fn main() -> Result<(),Error> {
+    // for i in 1..DECK_SIZE {
+    //     println!("Inverse Modulo({},{}) is {}", i, DECK_SIZE, modinverse(i as usize,DECK_SIZE as usize).unwrap())
+    // }
     let deck: Vec<usize> = (0..DECK_SIZE).collect();
     if DECK_SIZE > 25 {
         let i = DECK_SIZE-1;
@@ -29,12 +35,15 @@ fn cut_n(cards: Vec<usize>, n: isize) -> Vec<usize> {
 fn increment_m(cards: &Vec<usize>, m: usize) -> Vec<usize> {
     if m >= DECK_SIZE {panic!(format!("m ({}) is greater than or equal to size ({})",m,DECK_SIZE))}
     if m == 0 {panic!(format!("increment_m must be 1 or more"))}
-    let mut k = 0;
-    for test_val in 1..DECK_SIZE {
-        if test_val*m % DECK_SIZE == 1 {k = test_val; break;}
-    };
-    if k == 0 {panic!("Special value k not found!")}
-    (0..DECK_SIZE).into_iter().map(|i| { cards[i*k % DECK_SIZE] }).collect()
+    let f = modinverse(m as isize, DECK_SIZE as isize).unwrap() as usize;
+    println!("Modulo Inverse of ({},{}) is {}", m, DECK_SIZE, f);
+    (0..DECK_SIZE).into_iter().map(|i|{cards[i * f % DECK_SIZE]}).collect()
+    // let mut k = 0;
+    // for test_val in 1..DECK_SIZE {
+    //     if test_val*m % DECK_SIZE == 1 {k = test_val; break;}
+    // };
+    // if k == 0 {panic!("Special value k not found!")}
+    // (0..DECK_SIZE).into_iter().map(|i| { cards[i*k % DECK_SIZE] }).collect()
 }
 fn shuffle(cards: Vec<usize>, input: &str) -> Vec<usize> {
     let mut new_deal = cards;
