@@ -1,20 +1,21 @@
 /// https://adventofcode.com/2019/day/22
 use modinverse::modinverse; // for increment_m
 
-const DECK_SIZE:usize = 10_007;
+const DECK_SIZE:usize = 10;
+// const DECK_SIZE:usize = 119_315_717_514_047;
 
 fn main() -> Result<(),Error> {
     // for i in 1..DECK_SIZE {
     //     println!("Inverse Modulo({},{}) is {}", i, DECK_SIZE, modinverse(i as usize,DECK_SIZE as usize).unwrap())
     // }
-    let deck: Vec<usize> = (0..DECK_SIZE).collect();
+    let deck = Box::new(0..DECK_SIZE);
     if DECK_SIZE > 25 {
         let i = DECK_SIZE-1;
-        let deck2 = increment_m(&deck, i);
+        let deck2 = increment_m(deck, i);
         // println!("Deck increment_{} starts with {:?}", i, deck2.iter().take(20).collect::<Vec<_>>());
     } else {
         for i in 1..DECK_SIZE {
-            let deck2 = increment_m(&deck, i);
+            let deck2 = increment_m(deck, i);
             // println!("Deck {} is {:?}", i, deck2 );
         }
     }
@@ -25,27 +26,25 @@ enum Error {
     _NotImplemented,
     // MapAssertFail {msg: String},
 }
-fn new_stack(cards: Vec<usize>) -> Vec<usize> {
-    cards.into_iter().rev().collect::<Vec<usize>>()
+fn new_stack(cards: Box<dyn DoubleEndedIterator<Item=usize>>) -> Box<dyn DoubleEndedIterator<Item=usize>> {
+    Box::new(cards.rev())
 }
-fn cut_n(cards: Vec<usize>, n: isize) -> Vec<usize> {
+fn cut_n(cards: Box<dyn DoubleEndedIterator<Item=usize>>, n: isize) -> Box<dyn DoubleEndedIterator<Item=usize>> {
     let n = if n < 0 {DECK_SIZE as isize + n} else {n} as usize;
-    cards.into_iter().cycle().skip(n).take(DECK_SIZE).collect::<Vec<usize>>()
+    let place_at_bottom: Vec<_> = cards.take(n).collect();
+    Box::new(cards.chain(place_at_bottom.into_iter()))
 }
-fn increment_m(cards: &Vec<usize>, m: usize) -> Vec<usize> {
+fn increment_m(cards: Box<dyn DoubleEndedIterator<Item=usize>>, m: usize) -> Box<dyn DoubleEndedIterator<Item=usize>> {
+    const MAX_CACHE: usize = 10_007;
     if m >= DECK_SIZE {panic!(format!("m ({}) is greater than or equal to size ({})",m,DECK_SIZE))}
     if m == 0 {panic!(format!("increment_m must be 1 or more"))}
     let f = modinverse(m as isize, DECK_SIZE as isize).unwrap() as usize;
-    println!("Modulo Inverse of ({},{}) is {}", m, DECK_SIZE, f);
-    (0..DECK_SIZE).into_iter().map(|i|{cards[i * f % DECK_SIZE]}).collect()
-    // let mut k = 0;
-    // for test_val in 1..DECK_SIZE {
-    //     if test_val*m % DECK_SIZE == 1 {k = test_val; break;}
-    // };
-    // if k == 0 {panic!("Special value k not found!")}
-    // (0..DECK_SIZE).into_iter().map(|i| { cards[i*k % DECK_SIZE] }).collect()
+    // println!("Modulo Inverse of ({},{}) is {}", m, DECK_SIZE, f);
+    let unshuffled = 0..DECK_SIZE;
+    let cache: Vec<usize> = (*cards).take(MAX_CACHE).cloned().collect::<Vec<_>>();
+    Box::new((0..MAX_CACHE).into_iter().map(|i|{cache[i * f % DECK_SIZE]}).chain(cards).take(MAX_CACHE).collect::<Vec<_>>().into_iter())
 }
-fn shuffle(cards: Vec<usize>, input: &str) -> Vec<usize> {
+fn shuffle(cards: Box<dyn DoubleEndedIterator<Item=usize>>, input: &str) -> Box<dyn DoubleEndedIterator<Item=usize>> {
     let mut new_deal = cards;
     for line in input.lines() {
         let line = line.trim();
@@ -55,51 +54,56 @@ fn shuffle(cards: Vec<usize>, input: &str) -> Vec<usize> {
                 new_stack(new_deal)
             } else if line.contains("deal with increment ") {
                 let pieces: Vec<String> = line.split("deal with increment ").map(|s|{s.to_string()}).collect();
-                if pieces.len() == 2 {
+                let param = if pieces.len() == 2 {
                     if pieces[0].len() == 0 {
-                        let param = pieces[1].parse().unwrap();
-                        increment_m(&new_deal, param)
+                        pieces[1].parse().unwrap()
                     } else {panic!("Ack!")}
-                } else {panic!("Ack!")}
+                } else {panic!("Ack!")};
+                increment_m(new_deal, param)
             } else if line.contains("cut ") {
                 let pieces: Vec<String> = line.split("cut ").map(|s|{s.to_string()}).collect();
-                if pieces.len() == 2 {
+                let param = if pieces.len() == 2 {
                     if pieces[0].len() == 0 {
-                        let param = pieces[1].parse().unwrap();
-                        cut_n(new_deal, param)
+                        pieces[1].parse().unwrap()
                     } else {panic!("Ack!")}
-                } else {panic!("Ack!")}
+                } else {panic!("Ack!")};
+                cut_n(new_deal, param)
             } else {
                 panic!(format!("Unknown input line: {}", line));
-            };
+            }
     }
     new_deal
 }
 
-// #[test]
-// fn test_increment_n() {
-//     let deck: Vec<usize> = (0..DECK_SIZE).collect();
-//     let deck = increment_m(&deck, 3);
-//     assert_eq!(deck, vec![0,7,4,1,8,5,2,9,6,3]);
-//     let deck: Vec<usize> = (0..DECK_SIZE).collect();
-//     let deck = increment_m(&deck, 7);
-//     assert_eq!(deck, vec![0,3,6,9,2,5,8,1,4,7]);
-// }
-// #[test]
-// fn test_cut_n() {
-//     let deck: Vec<usize> = (0..DECK_SIZE).collect();
-//     let deck = cut_n(deck, 3);
-//     assert_eq!(deck, vec![3,4,5,6,7,8,9,0,1,2]);
-//     let deck: Vec<usize> = (0..DECK_SIZE).collect();
-//     let deck = cut_n(deck, -2);
-//     assert_eq!(deck, vec![8,9,0,1,2,3,4,5,6,7]);
-// }
-// #[test]
-// fn test_new_stack() {
-//     let deck: Vec<usize> = (0..DECK_SIZE).collect();
-//     let deck = new_stack(deck);
-//     assert_eq!(deck, vec![9,8,7,6,5,4,3,2,1,0]);
-// }
+#[test]
+fn test_increment_n() {
+    let deck = Box::new(0..DECK_SIZE);
+    let deck = increment_m(deck, 3);
+    let deck = deck.collect();
+    assert_eq!(deck, vec![0,7,4,1,8,5,2,9,6,3]);
+    let deck = Box::new(0..DECK_SIZE);
+    let deck = increment_m(deck, 7);
+    let deck = deck.collect();
+    assert_eq!(deck, vec![0,3,6,9,2,5,8,1,4,7]);
+}
+#[test]
+fn test_cut_n() {
+    let deck = Box::new(0..DECK_SIZE);
+    let deck = cut_n(deck, 3);
+    let deck = deck.collect();
+    assert_eq!(deck, vec![3,4,5,6,7,8,9,0,1,2]);
+    let deck = Box::new(0..DECK_SIZE);
+    let deck = cut_n(deck, -2);
+    let deck = deck.collect();
+    assert_eq!(deck, vec![8,9,0,1,2,3,4,5,6,7]);
+}
+#[test]
+fn test_new_stack() {
+    let deck = Box::new(0..DECK_SIZE);
+    let deck = new_stack(deck);
+    let deck = deck.collect();
+    assert_eq!(deck, vec![9,8,7,6,5,4,3,2,1,0]);
+}
 
 // #[test]
 // fn test_big_new_stack() {
@@ -140,10 +144,14 @@ fn shuffle(cards: Vec<usize>, input: &str) -> Vec<usize> {
 // }
 #[test]
 fn test_part1() {
-    let deck: Vec<usize> = (0..DECK_SIZE).collect();
+    let deck = Box::new(0..DECK_SIZE);
     let deck = shuffle(deck, INPUT);
-    let ans = deck.iter().enumerate().fold(None,|pass_through,(n,card)|{if *card == 2019 {Some(n)} else {pass_through}}).unwrap();
-    assert_eq!(ans, 4703);
+    for (card_num,card) in deck.enumerate() {
+        if card == 2019 {
+            assert_eq!(card_num, 4703);
+            break;
+        }
+    }
 }
 
 // #[test]
