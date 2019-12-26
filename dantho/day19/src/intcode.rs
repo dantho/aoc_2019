@@ -44,114 +44,131 @@ impl TryFrom<isize> for OpCode {
         Ok(opcode)
     }
 }
-pub async fn intcode_run(mut v: Vec<isize>, mut input: Receiver<isize>, mut output: Sender<isize>) -> Result<Receiver<isize>, Error> {
-    let mut pc: usize = 0;
-    let mut relative_base: isize = 0;
-    println!("Intcode Model 2019_19.1 booting...", );
-    loop {
-        use OpCode::*;
-        let mode = v[pc] / 100;
-        let op = (v[pc] - mode * 100).try_into()?;
-        let m1 = mode - mode / 10 * 10;  let mode = mode / 10;
-        let m2 = mode - mode / 10 * 10;  let mode = mode / 10;
-        let m3 = mode - mode / 10 * 10;  let mode = mode / 10;
-        assert_eq!(mode, 0);
-        match op {
-            Add => {
-                let p1 = v[pc + 1];
-                let p2 = v[pc + 2];
-                let p3 = v[pc + 3];
-                let v1 = match m1 { 0=>v[p1 as usize], 1=>p1, 2=>v[(p1+relative_base) as usize], _ => panic!("Bad Mode"),};
-                let v2 = match m2 { 0=>v[p2 as usize], 1=>p2, 2=>v[(p2+relative_base) as usize], _ => panic!("Bad Mode"),};
-                assert_ne!(m3, 1);
-                v[ if m3 ==2 {p3+relative_base} else {p3} as usize] = v1 + v2;
-                pc += 4;
-            }
-            Multiply => {
-                let p1 = v[pc + 1];
-                let p2 = v[pc + 2];
-                let p3 = v[pc + 3];
-                let v1 = match m1 { 0=>v[p1 as usize], 1=>p1, 2=>v[(p1+relative_base) as usize], _ => panic!("Bad Mode"),};
-                let v2 = match m2 { 0=>v[p2 as usize], 1=>p2, 2=>v[(p2+relative_base) as usize], _ => panic!("Bad Mode"),};
-                assert_ne!(m3, 1);
-                v[ if m3 ==2 {p3+relative_base} else {p3} as usize] = v1 * v2;
-                pc += 4;
-            }
-            Read => {
-                let p1 = v[pc + 1];
-                assert_ne!(m1, 1);
-                v[ if m1 ==2 {p1+relative_base} else {p1} as usize] = match input.next().await {
-                    Some(v) => {
-                        println!("Intcode READing i32: {}", v);
-                        v
-                    },
-                    None => return Err(Error::ComputerComms{msg:"Expecting input, but stream has terminated.".to_string()}),
-                };
-                pc += 2;
-            }
-            Write => {
-                let p1 = v[pc + 1];
-                let v1 = match m1 { 0=>v[p1 as usize], 1=>p1, 2=>v[(p1+relative_base) as usize], _ => panic!("Bad Mode"),};
-                println!("Intcode WRITEing i32: {}", v1);
-                if let Err(_) = output.send(v1).await {
-                    println!("Intcode Reporting WRITE error");
-                    return Err(Error::ComputerComms{msg:"Problem sending output data. Has receiver been dropped?".to_string()});
-                };
-                pc += 2;
-            }
-            BranchNE => {
-                let p1 = v[pc + 1];
-                let p2 = v[pc + 2];
-                let v1 = match m1 { 0=>v[p1 as usize], 1=>p1, 2=>v[(p1+relative_base) as usize], _ => panic!("Bad Mode"),};
-                let v2 = match m2 { 0=>v[p2 as usize], 1=>p2, 2=>v[(p2+relative_base) as usize], _ => panic!("Bad Mode"),};
-                if v1 != 0 {
-                    pc = v2 as usize
-                } else {
-                    pc += 3
-                };
-            }
-            BranchEQ => {
-                let p1 = v[pc + 1];
-                let p2 = v[pc + 2];
-                let v1 = match m1 { 0=>v[p1 as usize], 1=>p1, 2=>v[(p1+relative_base) as usize], _ => panic!("Bad Mode"),};
-                let v2 = match m2 { 0=>v[p2 as usize], 1=>p2, 2=>v[(p2+relative_base) as usize], _ => panic!("Bad Mode"),};
-                if v1 == 0 {
-                    pc = v2 as usize
-                } else {
-                    pc += 3
-                };
-            }
-            CompareLT => {
-                let p1 = v[pc + 1];
-                let p2 = v[pc + 2];
-                let p3 = v[pc + 3];
-                let v1 = match m1 { 0=>v[p1 as usize], 1=>p1, 2=>v[(p1+relative_base) as usize], _ => panic!("Bad Mode"),};
-                let v2 = match m2 { 0=>v[p2 as usize], 1=>p2, 2=>v[(p2+relative_base) as usize], _ => panic!("Bad Mode"),};
-                assert_ne!(m3, 1);
-                v[ if m3 ==2 {p3+relative_base} else {p3} as usize] = if v1 < v2 {1} else {0};
-                pc += 4;
-            }
-            CompareEQ => {
-                let p1 = v[pc + 1];
-                let p2 = v[pc + 2];
-                let p3 = v[pc + 3];
-                let v1 = match m1 { 0=>v[p1 as usize], 1=>p1, 2=>v[(p1+relative_base) as usize], _ => panic!("Bad Mode"),};
-                let v2 = match m2 { 0=>v[p2 as usize], 1=>p2, 2=>v[(p2+relative_base) as usize], _ => panic!("Bad Mode"),};
-                assert_ne!(m3, 1);
-                v[ if m3 ==2 {p3+relative_base} else {p3} as usize] = if v1 == v2 {1} else {0};
-                pc += 4;
-            }
-            AdjustBase => {
-                let p1 = v[pc + 1];
-                let v1 = match m1 { 0=>v[p1 as usize], 1=>p1, 2=>v[(p1+relative_base) as usize], _ => panic!("Bad Mode"),};
-                relative_base += v1;
-                pc += 2;
-            }
-            Halt => {
-                println!("Intcode: Received 'Halt' command");
-                break
-            },
-        }
+pub struct Intcode {
+    orig_prog: Vec<isize>,
+    prog: Vec<isize>,
+    input: Receiver<isize>,
+    output: Sender<isize>,
+    pc: usize,
+    relative_base: isize,
+}
+impl Intcode {
+    pub fn new(prog: Vec<isize>, input: Receiver<isize>, output: Sender<isize>) -> Self {
+        let pc = 0;
+        let relative_base = 0;
+        let orig_prog = prog.clone();
+        println!("Intcode Model 2019_19.1 booting...", );
+        Intcode { orig_prog, prog, input, output, pc, relative_base }
     }
-    Ok(input) // Drop the input Receiver, this allow downstream fetching of values we are not going to process ('cause we're done)
+    pub async fn run(&mut self) -> Result<(), Error> {
+        loop {
+            use OpCode::*;
+            let mode = self.prog[self.pc] / 100;
+            let op = (self.prog[self.pc] - mode * 100).try_into()?;
+            let m1 = mode - mode / 10 * 10;  let mode = mode / 10;
+            let m2 = mode - mode / 10 * 10;  let mode = mode / 10;
+            let m3 = mode - mode / 10 * 10;  let mode = mode / 10;
+            assert_eq!(mode, 0);
+            match op {
+                Add => {
+                    let p1 = self.prog[self.pc + 1];
+                    let p2 = self.prog[self.pc + 2];
+                    let p3 = self.prog[self.pc + 3];
+                    let v1 = match m1 { 0=>self.prog[p1 as usize], 1=>p1, 2=>self.prog[(p1+self.relative_base) as usize], _ => panic!("Bad Mode"),};
+                    let v2 = match m2 { 0=>self.prog[p2 as usize], 1=>p2, 2=>self.prog[(p2+self.relative_base) as usize], _ => panic!("Bad Mode"),};
+                    assert_ne!(m3, 1);
+                    self.prog[ if m3 ==2 {p3+self.relative_base} else {p3} as usize] = v1 + v2;
+                    self.pc += 4;
+                }
+                Multiply => {
+                    let p1 = self.prog[self.pc + 1];
+                    let p2 = self.prog[self.pc + 2];
+                    let p3 = self.prog[self.pc + 3];
+                    let v1 = match m1 { 0=>self.prog[p1 as usize], 1=>p1, 2=>self.prog[(p1+self.relative_base) as usize], _ => panic!("Bad Mode"),};
+                    let v2 = match m2 { 0=>self.prog[p2 as usize], 1=>p2, 2=>self.prog[(p2+self.relative_base) as usize], _ => panic!("Bad Mode"),};
+                    assert_ne!(m3, 1);
+                    self.prog[ if m3 ==2 {p3+self.relative_base} else {p3} as usize] = v1 * v2;
+                    self.pc += 4;
+                }
+                Read => {
+                    let p1 = self.prog[self.pc + 1];
+                    assert_ne!(m1, 1);
+                    self.prog[ if m1 ==2 {p1+self.relative_base} else {p1} as usize] = match self.input.next().await {
+                        Some(v) => {
+                            println!("Intcode READing i32: {}", v);
+                            v
+                        },
+                        None => return Err(Error::ComputerComms{msg:"Expecting input, but stream has terminated.".to_string()}),
+                    };
+                    self.pc += 2;
+                }
+                Write => {
+                    let p1 = self.prog[self.pc + 1];
+                    let v1 = match m1 { 0=>self.prog[p1 as usize], 1=>p1, 2=>self.prog[(p1+self.relative_base) as usize], _ => panic!("Bad Mode"),};
+                    println!("Intcode WRITEing i32: {}", v1);
+                    if let Err(_) = self.output.send(v1).await {
+                        println!("Intcode Reporting WRITE error");
+                        return Err(Error::ComputerComms{msg:"Problem sending output data. Has receiver been dropped?".to_string()});
+                    };
+                    self.pc += 2;
+                }
+                BranchNE => {
+                    let p1 = self.prog[self.pc + 1];
+                    let p2 = self.prog[self.pc + 2];
+                    let v1 = match m1 { 0=>self.prog[p1 as usize], 1=>p1, 2=>self.prog[(p1+self.relative_base) as usize], _ => panic!("Bad Mode"),};
+                    let v2 = match m2 { 0=>self.prog[p2 as usize], 1=>p2, 2=>self.prog[(p2+self.relative_base) as usize], _ => panic!("Bad Mode"),};
+                    if v1 != 0 {
+                        self.pc = v2 as usize
+                    } else {
+                        self.pc += 3
+                    };
+                }
+                BranchEQ => {
+                    let p1 = self.prog[self.pc + 1];
+                    let p2 = self.prog[self.pc + 2];
+                    let v1 = match m1 { 0=>self.prog[p1 as usize], 1=>p1, 2=>self.prog[(p1+self.relative_base) as usize], _ => panic!("Bad Mode"),};
+                    let v2 = match m2 { 0=>self.prog[p2 as usize], 1=>p2, 2=>self.prog[(p2+self.relative_base) as usize], _ => panic!("Bad Mode"),};
+                    if v1 == 0 {
+                        self.pc = v2 as usize
+                    } else {
+                        self.pc += 3
+                    };
+                }
+                CompareLT => {
+                    let p1 = self.prog[self.pc + 1];
+                    let p2 = self.prog[self.pc + 2];
+                    let p3 = self.prog[self.pc + 3];
+                    let v1 = match m1 { 0=>self.prog[p1 as usize], 1=>p1, 2=>self.prog[(p1+self.relative_base) as usize], _ => panic!("Bad Mode"),};
+                    let v2 = match m2 { 0=>self.prog[p2 as usize], 1=>p2, 2=>self.prog[(p2+self.relative_base) as usize], _ => panic!("Bad Mode"),};
+                    assert_ne!(m3, 1);
+                    self.prog[ if m3 ==2 {p3+self.relative_base} else {p3} as usize] = if v1 < v2 {1} else {0};
+                    self.pc += 4;
+                }
+                CompareEQ => {
+                    let p1 = self.prog[self.pc + 1];
+                    let p2 = self.prog[self.pc + 2];
+                    let p3 = self.prog[self.pc + 3];
+                    let v1 = match m1 { 0=>self.prog[p1 as usize], 1=>p1, 2=>self.prog[(p1+self.relative_base) as usize], _ => panic!("Bad Mode"),};
+                    let v2 = match m2 { 0=>self.prog[p2 as usize], 1=>p2, 2=>self.prog[(p2+self.relative_base) as usize], _ => panic!("Bad Mode"),};
+                    assert_ne!(m3, 1);
+                    self.prog[ if m3 ==2 {p3+self.relative_base} else {p3} as usize] = if v1 == v2 {1} else {0};
+                    self.pc += 4;
+                }
+                AdjustBase => {
+                    let p1 = self.prog[self.pc + 1];
+                    let v1 = match m1 { 0=>self.prog[p1 as usize], 1=>p1, 2=>self.prog[(p1+self.relative_base) as usize], _ => panic!("Bad Mode"),};
+                    self.relative_base += v1;
+                    self.pc += 2;
+                }
+                Halt => {
+                    println!("Intcode: Received 'Halt' command");
+                    // break;
+                    self.pc = 0;
+                    self.relative_base = 0;
+                    self.prog = self.orig_prog.clone();
+                },
+            }
+        }
+        Ok(()) // Drop the input Receiver, this allow downstream fetching of values we are not going to process ('cause we're done)
+    }
 }

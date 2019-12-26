@@ -52,15 +52,15 @@ async fn boot_intcode_and_droid(prog: Vec<isize>) -> Result<(usize,usize),Error>
     const BUFFER_SIZE: usize = 10;
     let (droid_tx, computer_rx) = channel::<isize>(BUFFER_SIZE);
     let (computer_tx, droid_rx) = channel::<isize>(BUFFER_SIZE);
-    let computer = intcode::intcode_run(prog, computer_rx, computer_tx);
+    let mut computer = intcode::Intcode::new(prog, computer_rx, computer_tx);
     let droid = droid_run(droid_rx, droid_tx);
-    let (_computer_return,droid_response) = join!(computer, droid); // , computer_snooper.monitor(), droid_snooper.monitor()
+    let (_computer_return,droid_response) = join!(computer.run(), droid); // , computer_snooper.monitor(), droid_snooper.monitor()
     droid_response
 }
 async fn droid_run(rx: Receiver<isize>, tx: Sender<isize>) -> Result<(usize,usize),Error> {
     let mut droid = Droid::new(rx, tx);
     // droid.explored_world.redraw_screen()?;
-    droid.explore(0,0).await?;
+    droid.explore().await?;
     let tractor_beam_count = droid.explored_world.data.iter().fold(0, |cnt, ((_,_), m)| {
         cnt + if m == &TractorBeam {1} else {0}
     });
@@ -251,16 +251,20 @@ impl Droid {
     // explore() is a trivial grid march
     // See https://rust-lang.github.io/async-book/07_workarounds/05_recursion.html 
     //    for explanation of fn syntax and async block usage
-    fn explore<'a>(&'a mut self, y:usize, x:usize) -> BoxFuture<'a, Result<(),Error>> {
+    fn explore<'a>(&'a mut self) -> BoxFuture<'a, Result<(),Error>> {
         async move {
-            match self.move_droid(y,x).await? {
-                BeamDetected => {
-                    println!("Modifying self.explored_world");
-                    self.explored_world.modify_data((y,x), TractorBeam)?},
-                Nothing => {
-                    println!("Modifying self.explored_world");
-                    self.explored_world.modify_data((y,x), Empty)?
-                },
+            for y in 0..50 {
+                for x in 0..50 {
+                    match self.move_droid(y,x).await? {
+                        BeamDetected => {
+                            println!("Modifying self.explored_world");
+                            self.explored_world.modify_data((y,x), TractorBeam)?},
+                        Nothing => {
+                            println!("Modifying self.explored_world");
+                            self.explored_world.modify_data((y,x), Empty)?
+                        },
+                    };        
+                };
             };
             Ok(())
         }.boxed()
