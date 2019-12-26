@@ -2,8 +2,14 @@
 
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Debug;
+use std::collections::BTreeMap;
 use futures::prelude::*;
-use futures::channel::mpsc::{Sender,Receiver};
+use futures::channel::mpsc::{channel,Sender,Receiver};
+use futures::executor::block_on;
+use futures::join;
+use futures::future::BoxFuture; // https://rust-lang.github.io/async-book/07_workarounds/05_recursion.html
+use Error::*;
+use std::time::Duration;
 
 #[derive(Debug)]
 pub enum Error {
@@ -47,7 +53,6 @@ impl TryFrom<isize> for OpCode {
 pub async fn intcode_run(mut v: Vec<isize>, mut input: Receiver<isize>, mut output: Sender<isize>) -> Result<Receiver<isize>, Error> {
     let mut pc: usize = 0;
     let mut relative_base: isize = 0;
-    println!("Intcode Model 2019_19.1 booting...", );
     loop {
         use OpCode::*;
         let mode = v[pc] / 100;
@@ -56,6 +61,7 @@ pub async fn intcode_run(mut v: Vec<isize>, mut input: Receiver<isize>, mut outp
         let m2 = mode - mode / 10 * 10;  let mode = mode / 10;
         let m3 = mode - mode / 10 * 10;  let mode = mode / 10;
         assert_eq!(mode, 0);
+        // if !op.execute(&mut v, mode) { break; }
         match op {
             Add => {
                 let p1 = v[pc + 1];
@@ -81,10 +87,7 @@ pub async fn intcode_run(mut v: Vec<isize>, mut input: Receiver<isize>, mut outp
                 let p1 = v[pc + 1];
                 assert_ne!(m1, 1);
                 v[ if m1 ==2 {p1+relative_base} else {p1} as usize] = match input.next().await {
-                    Some(v) => {
-                        println!("Intcode READing i32: {}", v);
-                        v
-                    },
+                    Some(v) => v,
                     None => return Err(Error::ComputerComms{msg:"Expecting input, but stream has terminated.".to_string()}),
                 };
                 pc += 2;
@@ -92,9 +95,7 @@ pub async fn intcode_run(mut v: Vec<isize>, mut input: Receiver<isize>, mut outp
             Write => {
                 let p1 = v[pc + 1];
                 let v1 = match m1 { 0=>v[p1 as usize], 1=>p1, 2=>v[(p1+relative_base) as usize], _ => panic!("Bad Mode"),};
-                println!("Intcode WRITEing i32: {}", v1);
                 if let Err(_) = output.send(v1).await {
-                    println!("Intcode Reporting WRITE error");
                     return Err(Error::ComputerComms{msg:"Problem sending output data. Has receiver been dropped?".to_string()});
                 };
                 pc += 2;
@@ -147,10 +148,7 @@ pub async fn intcode_run(mut v: Vec<isize>, mut input: Receiver<isize>, mut outp
                 relative_base += v1;
                 pc += 2;
             }
-            Halt => {
-                println!("Intcode: Received 'Halt' command");
-                break
-            },
+            Halt => break,
         }
     }
     Ok(input) // Drop the input Receiver, this allow downstream fetching of values we are not going to process ('cause we're done)
