@@ -95,7 +95,7 @@ impl Intcode {
                     assert_ne!(m1, 1);
                     self.prog[ if m1 ==2 {p1+self.relative_base} else {p1} as usize] = match self.input.next().await {
                         Some(v) => {
-                            println!("Intcode READing i32: {}", v);
+                            // println!("Intcode READing i32: {}", v);
                             v
                         },
                         None => return Err(Error::ComputerComms{msg:"Expecting input, but stream has terminated.".to_string()}),
@@ -105,9 +105,9 @@ impl Intcode {
                 Write => {
                     let p1 = self.prog[self.pc + 1];
                     let v1 = match m1 { 0=>self.prog[p1 as usize], 1=>p1, 2=>self.prog[(p1+self.relative_base) as usize], _ => panic!("Bad Mode"),};
-                    println!("Intcode WRITEing i32: {}", v1);
+                    // println!("Intcode WRITEing i32: {}", v1);
                     if let Err(_) = self.output.send(v1).await {
-                        println!("Intcode Reporting WRITE error");
+                        // println!("Intcode Reporting WRITE error");
                         return Err(Error::ComputerComms{msg:"Problem sending output data. Has receiver been dropped?".to_string()});
                     };
                     self.pc += 2;
@@ -161,7 +161,7 @@ impl Intcode {
                     self.pc += 2;
                 }
                 Halt => {
-                    println!("Intcode: Received 'Halt' command");
+                    // println!("Intcode: Received 'Halt' command");
                     // break;
                     self.pc = 0;
                     self.relative_base = 0;

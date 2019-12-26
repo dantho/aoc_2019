@@ -59,8 +59,8 @@ async fn boot_intcode_and_droid(prog: Vec<isize>) -> Result<(usize,usize),Error>
 }
 async fn droid_run(rx: Receiver<isize>, tx: Sender<isize>) -> Result<(usize,usize),Error> {
     let mut droid = Droid::new(rx, tx);
-    // droid.explored_world.redraw_screen()?;
     droid.explore().await?;
+    droid.explored_world.redraw_screen()?;
     let tractor_beam_count = droid.explored_world.data.iter().fold(0, |cnt, ((_,_), m)| {
         cnt + if m == &TractorBeam {1} else {0}
     });
@@ -150,7 +150,7 @@ struct WorldMap {
 }
 impl WorldMap {
     fn new() -> Self {
-        let origin = (0,0);
+        let origin = (665,370);
         let data = BTreeMap::new();
         WorldMap {origin, data}
     }
@@ -253,18 +253,36 @@ impl Droid {
     //    for explanation of fn syntax and async block usage
     fn explore<'a>(&'a mut self) -> BoxFuture<'a, Result<(),Error>> {
         async move {
-            for y in 0..50 {
-                for x in 0..50 {
+            let mut history = Vec::with_capacity(100);
+            for y in self.explored_world.origin.0.. {
+                let mut min_x = std::usize::MAX;
+                let mut max_x = std::usize::MIN;
+                for x in self.explored_world.origin.1.. {
                     match self.move_droid(y,x).await? {
                         BeamDetected => {
-                            println!("Modifying self.explored_world");
+                            if x < min_x {min_x = x};
+                            if x > max_x {max_x = x};
+                            // println!("Modifying self.explored_world");
                             self.explored_world.modify_data((y,x), TractorBeam)?},
                         Nothing => {
-                            println!("Modifying self.explored_world");
-                            self.explored_world.modify_data((y,x), Empty)?
+                            // println!("Modifying self.explored_world");
+                            self.explored_world.modify_data((y,x), Empty)?;
+                            if max_x > std::usize::MIN {break;}
                         },
                     };        
                 };
+                history.push((y, min_x, max_x));
+                if history.len() == 100 {
+                    let (ancient_y, ancient_min_x, ancient_max_x) = history.remove(0);
+                    if ancient_max_x >= min_x+99 {
+                        println!("Ancient line y = {} starts at x = {} and ends at x = {}", ancient_y, ancient_min_x, ancient_max_x);
+                        println!("Latest line y = {} starts at x = {} and ends at x = {}", y, min_x, max_x);
+                        break;
+                    }
+                    println!("Line {} has width {}", y, max_x-min_x+1);
+                } else {
+                    println!("Line {}", y);
+                }
             };
             Ok(())
         }.boxed()
@@ -283,12 +301,12 @@ impl Droid {
             return Err(Error::DroidComms { msg:format!("Droid output channel failure.  The following data is being discarded:\n   {:?}", y) });
         }
         // And fetch a response
-        println!("Attempting to fetch move response...");
+        // println!("Attempting to fetch move response...");
         let status = match self.rx.next().await {
             Some(st) => {
-                println!("Status read from Intcode: {}", st);
+                // println!("Status read from Intcode: {}", st);
                 let ds = DroidStatus::try_from(st)?;
-                println!("DroidStatus is {:?}", ds);
+                // println!("DroidStatus is {:?}", ds);
                 ds
             },
             None => return Err(DroidComms {msg: "Intcode computer stopped transmitting.".to_string()}),
