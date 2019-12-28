@@ -1,6 +1,8 @@
 /// tps://adventofcode.com/2019/day/23
 
 mod intcode;
+crate async_std;
+
 use intcode::Error;
 use intcode::Error::*;
 
@@ -60,6 +62,9 @@ async fn boot_50_intcode_machines(prog: Vec<isize>) -> Result<(isize,isize),Erro
     net_response
 }
 async fn manage_network(mut rx: Vec<Receiver<(isize,isize,isize)>>, mut tx: Vec<Sender<isize>>) -> Result<(isize,isize),Error> {
+    use futures::{future, select};
+    let mut stored_nat;
+    let mut last_used_y = -1;
     loop {
         let mut compute_farm = futures_util::stream::FuturesUnordered::new();
         for rx in (&mut rx).into_iter() {
@@ -70,13 +75,31 @@ async fn manage_network(mut rx: Vec<Receiver<(isize,isize,isize)>>, mut tx: Vec<
             Some(None)|None => return Err(ComputerComms{msg:"Bad data fetched".to_string()}),
         };
         if to_addr == 255 {
-            return Ok((y,0));
+            stored_nat = (x,y);
+            println!("Stored_NAT {:?}", stored_nat);
+            // if true {
+            //     if stored_nat.1 == last_used_y {
+            //         return Ok((last_used_y, 0))
+            //     } else {
+            //         send_x_y(&mut tx[0], x, y).await?;
+            //         last_used_y = stored_nat.1;
+            //     }
+            // }
         } else {
-            println!("To: {} -- ({},{}) ", to_addr, x, y);
+            // println!("To: {} -- ({},{}) ", to_addr, x, y);
             send_x_y(&mut tx[to_addr as usize], x, y).await?;
         }
-        println!("Size of ComputeFarm {}", compute_farm.len());
+        // println!("Size of ComputeFarm {}", compute_farm.len());
     }
+}
+async fn timeout(millisecs: u64) -> () {
+    use std::{thread,time};
+    use async_std::task;
+
+    let time2sleep = time::Duration::from_millis(millisecs);
+    let now = time::Instant::now();
+    task::sleep(Duration::from_secs(1)).await;
+    assert!(now.elapsed() >= time2sleep);
 }
 async fn initialize_addresses(tx_list: &mut Vec<Sender<isize>>) -> Result<(),Error> {
     let mut addr = 0isize;
