@@ -60,34 +60,28 @@ async fn boot_50_intcode_machines(prog: Vec<isize>) -> Result<(isize,isize),Erro
     net_response
 }
 async fn manage_network(mut rx: Vec<Receiver<(isize,isize,isize)>>, mut tx: Vec<Sender<isize>>) -> Result<(isize,isize),Error> {
-    let rx_data = (&mut rx).into_iter().map(|rx|{rx.next()});
-    let mut compute_farm = futures::future::select_all(rx_data);
     loop {
-        let (some_tuple, from_addr,remaining) = compute_farm.await;
-        match some_tuple {
-            None => panic!("Received None as data from compute farm!"),
-            Some((to_addr, x, y)) => {
-                if to_addr == 255 {
-                    return Ok((y,0));
-                } else {
-                    println!("From: {} To: {} -- ({},{}) ", from_addr, to_addr, x, y);
-                    send_x_y(&mut tx[to_addr as usize], x, y).await?;
-                }
-            },
+        let mut compute_farm = futures_util::stream::FuturesUnordered::new();
+        for rx in (&mut rx).into_iter() {
+            compute_farm.push(rx.next());
         }
-        // remaining.push(rx[from_addr].next());
-        println!("remaining.len(): {}", remaining.len());
-        compute_farm = futures::future::select_all(remaining);
+        let (to_addr, x, y) = match compute_farm.next().await {
+            Some(Some((a,b,c))) => (a,b,c),
+            Some(None)|None => return Err(ComputerComms{msg:"Bad data fetched".to_string()}),
+        };
+        if to_addr == 255 {
+            return Ok((y,0));
+        } else {
+            println!("To: {} -- ({},{}) ", to_addr, x, y);
+            send_x_y(&mut tx[to_addr as usize], x, y).await?;
+        }
+        println!("Size of ComputeFarm {}", compute_farm.len());
     }
 }
 async fn initialize_addresses(tx_list: &mut Vec<Sender<isize>>) -> Result<(),Error> {
     let mut addr = 0isize;
     for tx in tx_list {
         if let Err(_) = tx.send(addr).await {
-            // println!("Intcode Reporting WRITE error");
-            return Err(ComputerComms{msg:"Problem sending initial address. Has receiver been dropped?".to_string()});
-        }
-        if let Err(_) = tx.send(-1).await {
             // println!("Intcode Reporting WRITE error");
             return Err(ComputerComms{msg:"Problem sending initial address. Has receiver been dropped?".to_string()});
         }
@@ -108,13 +102,5 @@ async fn send_x_y(tx: &mut Sender<isize>, x:isize, y:isize) -> Result<(),Error> 
         // println!("Intcode Reporting WRITE error");
         return Err(Error::ComputerComms{msg:"Problem sending y data. Has receiver been dropped?".to_string()});
     }
-    if let Err(_) = tx.send(-1).await {
-        // println!("Intcode Reporting WRITE error");
-        return Err(ComputerComms{msg:"Problem sending initial address. Has receiver been dropped?".to_string()});
-    }
-    if let Err(_) = tx.send(-1).await {
-        // println!("Intcode Reporting WRITE error");
-        return Err(ComputerComms{msg:"Problem sending initial address. Has receiver been dropped?".to_string()});
-    }
-Ok(())
+    Ok(())
 }
