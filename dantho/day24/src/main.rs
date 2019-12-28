@@ -11,7 +11,7 @@ fn main() {
     let mut history = HashSet::new();
     for (y,line) in initial_map.lines().filter(|l|{l.len()==7}).enumerate() {
         for (x,ch) in line.chars().enumerate() {
-            lifemap.insert((y,x), ch == '#');
+            lifemap.insert((y,x), if ch == '#' {1} else {0});
         }
     }
     print(ESC_CURSOR_OFF);
@@ -27,16 +27,15 @@ fn main() {
         .zip(lifemap.values().skip(6))  // left
         .zip(lifemap.values().skip(8))  // right
         .map(|((((above,center),below),left),right)|{(*center,
-            if *above {1} else {0} +
-            if *below {1} else {0} +
-            if *left  {1} else {0} +
-            if *right {1} else {0}
-        )})
+            *above +
+            *below +
+            *left  +
+            *right         )})
         .map(|(center,neighbors)|{
-            if center {
-                neighbors == 1
+            if center == 1 {
+                if neighbors == 1 {1} else {0}
             } else {
-                neighbors == 1 || neighbors == 2
+                if neighbors == 1 || neighbors == 2 {1} else {0}
             }
         }).collect::<Vec<_>>();
         // replace old data with new (skips are vital for correct placement)
@@ -47,19 +46,19 @@ fn main() {
     }
     let biodiversity_rating = lifemap.into_iter().filter_map(|((x,y), b)|{
         if y == 0 || y == 6 || x == 0 || x == 6 {None}
-        else {Some(if b {1} else {0})}
+        else {Some(b)}
     }).collect::<Vec<_>>().into_iter().rev().fold(0,|rating,b|{rating*2+b});
     println!("Biodiversity rating is {}", biodiversity_rating);
 }
-fn print_screen(lifemap: &BTreeMap<(usize,usize),bool>) {
+fn print_screen(lifemap: &BTreeMap<(usize,usize),u32>) {
     let mut last_row = 1;
-    for ((row,col), is_life) in lifemap {
+    for ((row,_col), life_cnt) in lifemap {
         // if *row == 0 || *row == 6 {continue;} // do not print border
         // if *col == 0 || *col == 6 {continue;} // do not print border
         if *row != last_row {
             println!("");
         }
-        print!("{}", if *is_life {'#'} else {'.'});
+        print!("{}", if *life_cnt > 0 {'#'} else {'.'});
         last_row = *row;
     }
     println!("");
