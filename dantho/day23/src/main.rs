@@ -1,8 +1,6 @@
+#![recursion_limit="256"]
 /// tps://adventofcode.com/2019/day/23
-
 mod intcode;
-crate async_std;
-
 use intcode::Error;
 use intcode::Error::*;
 
@@ -10,10 +8,16 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::BufReader;
 use futures::prelude::*;
+use futures::select;
 use futures::channel::mpsc::{channel,Sender,Receiver};
 use futures::executor::block_on;
 use futures::join;
 use futures::future::join_all; // https://rust-lang.github.io/async-book/07_workarounds/05_recursion.html
+use async_std;
+use async_std::task;
+use std::time;
+use std::time::Duration;
+
 
 fn main() -> Result<(),Error> {
     const PROG_MEM_SIZE: usize = 3000;
@@ -62,41 +66,40 @@ async fn boot_50_intcode_machines(prog: Vec<isize>) -> Result<(isize,isize),Erro
     net_response
 }
 async fn manage_network(mut rx: Vec<Receiver<(isize,isize,isize)>>, mut tx: Vec<Sender<isize>>) -> Result<(isize,isize),Error> {
-    use futures::{future, select};
-    let mut stored_nat;
+    let mut stored_nat = (0,-2);
     let mut last_used_y = -1;
     loop {
         let mut compute_farm = futures_util::stream::FuturesUnordered::new();
         for rx in (&mut rx).into_iter() {
             compute_farm.push(rx.next());
         }
-        let (to_addr, x, y) = match compute_farm.next().await {
-            Some(Some((a,b,c))) => (a,b,c),
-            Some(None)|None => return Err(ComputerComms{msg:"Bad data fetched".to_string()}),
-        };
-        if to_addr == 255 {
-            stored_nat = (x,y);
-            println!("Stored_NAT {:?}", stored_nat);
-            // if true {
-            //     if stored_nat.1 == last_used_y {
-            //         return Ok((last_used_y, 0))
-            //     } else {
-            //         send_x_y(&mut tx[0], x, y).await?;
-            //         last_used_y = stored_nat.1;
-            //     }
-            // }
-        } else {
-            // println!("To: {} -- ({},{}) ", to_addr, x, y);
-            send_x_y(&mut tx[to_addr as usize], x, y).await?;
+        select! {
+            farm = compute_farm.next().fuse() => {
+                let (to_addr, x, y) = match farm {
+                    Some(Some((a,b,c))) => (a,b,c),
+                    Some(None)|None => return Err(ComputerComms{msg:"Bad data fetched".to_string()}),
+                };
+                if to_addr == 255 {
+                    stored_nat = (x,y);
+                    println!("Stored_NAT {:?}", stored_nat);
+                } else {
+                    // println!("To: {} -- ({},{}) ", to_addr, x, y);
+                    send_x_y(&mut tx[to_addr as usize], x, y).await?;
+                }
+            },
+            timeout = timeout(100).fuse() => {
+                if stored_nat.1 == last_used_y {
+                    return Ok((last_used_y, 0))
+                } else {
+                    send_x_y(&mut tx[0], stored_nat.0, stored_nat.1).await?;
+                    last_used_y = stored_nat.1;
+                }
+            }
         }
-        // println!("Size of ComputeFarm {}", compute_farm.len());
     }
 }
 async fn timeout(millisecs: u64) -> () {
-    use std::{thread,time};
-    use async_std::task;
-
-    let time2sleep = time::Duration::from_millis(millisecs);
+    let time2sleep = Duration::from_millis(millisecs);
     let now = time::Instant::now();
     task::sleep(Duration::from_secs(1)).await;
     assert!(now.elapsed() >= time2sleep);
