@@ -77,7 +77,7 @@ fn pick_up_all_keys(mut my_own_map: WorldMap, starting_loc: Location) -> Result<
     // Then recurse down that chosen path
 
     let complete_path_count = multiple_paths.iter().filter(|path| {path.door_at_end == None}).count();
-    let multiple_paths: Vec<_> = if complete_path_count == 0 {
+    let multiple_paths: Vec<_> = if complete_path_count > 0 {
         multiple_paths.into_iter().filter(|path| {path.door_at_end == None}).collect()
     } else {
         multiple_paths
@@ -85,11 +85,12 @@ fn pick_up_all_keys(mut my_own_map: WorldMap, starting_loc: Location) -> Result<
     let highest_key_count = multiple_paths.iter().fold(0, |highest_cnt, path| {
         if path.keys.len() > highest_cnt {path.keys.len()} else {highest_cnt}
     });
+    assert_ne!(highest_key_count, 0);
     if DBG {println!("highest_key_count: {}", highest_key_count);}
 
     // Filter to include only paths with highest count
     let multiple_paths_iter = multiple_paths.iter().filter(|path|{path.keys.len() == highest_key_count});
-// Now find shortest path
+    // Now find shortest path
     let (_, maybe_path) = multiple_paths_iter.fold((std::usize::MAX,None), |(min_dist,min_path), path| {
         path.keys.iter().fold((min_dist,min_path), |(min_dist,min_path),(dist,_)| {        
             if *dist < min_dist {

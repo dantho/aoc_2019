@@ -1,6 +1,6 @@
 fn main() {
     // process(EX2, i, 1);
-    let input = "1111";
+    let input = EX2;
     println!("Singular input of '{}': (Part 1)", input);
     process(input, 10, 1);
     println!("Cyclic Input: (Part 2)");
