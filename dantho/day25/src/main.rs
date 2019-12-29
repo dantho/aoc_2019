@@ -44,8 +44,8 @@ fn main() -> Result<(),Error> {
         Err(e) => return Err(e),
     };
     println!("");
-    println!("Part 1: Sum of alignment parameters is {}", part1);
-    println!("Part 2: Dust collected {}", part2);
+    println!("Part 1: Password for main airlock is {}", part1);
+    println!("Part 2: TBD {}", part2);
     // println!("Part 2: xxx is {}", xxx);
     Ok(())
 }
@@ -63,15 +63,158 @@ async fn boot_intcode_and_droid(prog: Vec<isize>) -> Result<(isize,isize),Error>
 }
 async fn droid_run_part1(rx: Receiver<isize>, tx: Sender<isize>) -> Result<isize,Error> {
     let mut droid = Droid::new(rx, tx);
-    let response = droid.read_response().await?;
-    println!("Initial response: {}", response);
-    let response = droid.read_response().await?;
-    println!("Arbitrary 2nd response: {}", response);
-    droid.send_command(Move{dir: North}).await?;
-    let response = droid.read_response().await?;
-    println!("Response to Move command: {}", response);
-    // droid.santas_ship.redraw_screen()?;
-    // println!("\nIntersections: {:?}", intersections);
+    let commands = vec![
+        // Starting in '== Hull Breach =='
+        // Move {dir: } // ==  ==
+        Move {dir: North}, // == Hallway ==
+            Move {dir: North}, // == Storage ==
+            Move {dir: North.reverse()},
+            Move {dir: West}, // == Sick Bay ==
+                Move {dir: South}, // == Kitchen ==
+                    Take {item: "planetoid".to_string()},
+                    Move {dir: East}, // == Navigation ==
+                        Take {item: "mutex".to_string()},
+                        Move {dir: East}, // == Gift Wrapping Center ==
+                        Move {dir: East.reverse()},
+                        Move {dir: South}, // == Hot Chocolate Fountain ==
+                            Take {item: "whirled peas".to_string()},
+                            Move {dir: South}, // == Corridor ==
+                                // DO NOT Take {item: "giant electromagnet".to_string()},
+                                Move {dir: East}, // == Security Checkpoint ==
+                                    Move {dir: North}, // == Pressure-Sensitive Floor ==
+                                    // REJECTED: Move {dir: North.reverse()},
+                                Move {dir: East.reverse()},
+                            Move {dir: South.reverse()},
+                        Move {dir: South.reverse()},
+                        Move {dir: West}, // == Crew Quarters ==
+                            // DO NOT Take {item: "molten lava".to_string()},
+                        Move {dir: West.reverse()},
+                Move {dir: South.reverse()},
+                    Move {dir: East.reverse()},
+                    Move {dir: West}, // == Warp Drive Maintenance ==
+                        Take {item: "antenna".to_string()},
+                    Move {dir: West.reverse()},
+                Move {dir: South.reverse()},
+            Move {dir: West.reverse()},
+        Move {dir: North.reverse()},
+        Move {dir: South}, // == Engineering ==
+            Take {item: "fuel cell".to_string()},
+        Move {dir: South.reverse()},
+        Move {dir: West}, // == Holodeck ==
+            Take {item: "mouse".to_string()},
+            Move {dir: West}, // == Passages ==
+                // DO NOT Take {item: "infinite loop".to_string()},
+                Move {dir: West}, // == Stables ==
+                    // DO NOT Take {item: "escape pod"},
+                Move {dir: West.reverse()},
+                Move {dir: South}, // == Observatory ==
+                    Take {item: "dark matter".to_string()},
+                Move {dir: South.reverse()},
+            Move {dir: West.reverse()},
+            Move {dir: North}, // == Science Lab ==
+                // DO NOT Take {item: "photons".to_string()},
+                Move {dir: East}, // == Arcade ==
+                    Take {item: "klein bottle".to_string()},
+                Move {dir: East.reverse()},
+            Move {dir: North.reverse()},
+        Move {dir: West.reverse()},
+        Inventory,
+        Move {dir: North}, // == Hallway ==
+            Move {dir: West}, // == Sick Bay ==
+                Move {dir: South}, // == Kitchen ==
+                    Move {dir: East}, // == Navigation ==
+                        Move {dir: South}, // == Hot Chocolate Fountain ==
+                            Move {dir: South}, // == Corridor ==
+                                Move {dir: East}, // == Security Checkpoint ==
+                                    Inventory,
+                                    Move {dir: North}, // == Pressure-Sensitive Floor ==
+    ];
+    println!("Initial response:");
+    loop {
+        let response = droid.read_response().await?;
+        println!("> {}", response);
+        if response == "Command?" {break;}
+    }
+    for command in &commands {
+        droid.send_command(command).await?;
+        println!("Response to command '{:?}':", command);
+        loop {
+            let response = droid.read_response().await?;
+            println!("> {}", response);
+            if response == "Command?" {break;}
+        }
+    }
+    // extract list of inventory items
+    droid.send_command(&Inventory).await?;
+    let mut inventory = Vec::new();
+    loop {
+        let response = droid.read_response().await?;
+        if response == "Command?" {break;}
+        let maybe_item = response.split("- ").collect::<Vec<_>>();
+        if maybe_item.len() == 2 {
+            assert_eq!(maybe_item[0].len(), 0); // split at start of string
+            inventory.push(maybe_item[1].to_string());
+        }
+    }
+    assert_eq!(inventory.len(), 8);
+    // try EVERY combination of inventory items to find the EXACT weight required
+    for combo in 0..=255 {
+        let mut droplist = Vec::new();
+        let two: usize = 2usize;
+        for bit in 0..8u32 {
+            // println!("combo & 2.pow({}) is {}", bit, combo & two.pow(bit));
+            if combo & two.pow(bit) > 0 {
+                droplist.push(inventory.get(bit as usize).unwrap().clone());
+            }
+        }
+        for item in &droplist {
+            droid.send_command(&Drop {item: item.to_string()}).await?;
+            loop {
+                let response = droid.read_response().await?;
+                println!("> {}", response);
+                if response == "Command?" {break;}
+            }                
+        }
+        droid.send_command(&Move {dir: North}).await?;
+        let mut bad_news = false;
+        loop {
+            let response = droid.read_response().await?;
+            println!("> {}", response);
+            bad_news = bad_news || response.contains("ejected");
+            if response == "Command?" {break;}
+        }
+        if !bad_news {
+            // Good News!  We found the right combination of stuff!
+            println!("**************  Hurrah!!!  *******");
+            break;
+        } else {
+            // Bummer. We were ejected again.  Pick up everything and keep searching...
+            for item in &droplist {
+                droid.send_command(&Take {item: item.to_string()}).await?;
+                loop {
+                    let response = droid.read_response().await?;
+                    println!("> {}", response);
+                    if response == "Command?" {break;}
+                }                
+            }
+        }
+    }
+    // // Continue exploring!
+    // let commands = vec![
+    //     // Starting in '== Pressure-Sensitive Floor =='
+    //     // Move {dir: } // ==  ==
+    //     Move {dir: North}, // ==  ==
+    // ];
+    // for command in &commands {
+    //     droid.send_command(command).await?;
+    //     println!("Response to command '{:?}':", command);
+    //     loop {
+    //         let response = droid.read_response().await?;
+    //         println!("> {}", response);
+    //         if response == "Command?" {break;}
+    //     }
+    // }
+
     Ok(0)
 }
 #[derive(Debug)]
@@ -106,11 +249,12 @@ impl TryFrom<isize> for MapData {
         Ok(status)
     }
 }
+#[derive(Debug)]
 enum DroidCommand {
     Move {dir: DroidMovement},
     Inventory,
-    TakeItem {item: String},
-    DropItem {item: String},
+    Take {item: String},
+    Drop {item: String},
 }
 impl DroidCommand {
     fn to_str(&self) -> String {
@@ -123,11 +267,11 @@ impl DroidCommand {
                 West => "west",
             },
             Inventory => "inv",
-            TakeItem{item} => {
+            Take{item} => {
                 tmp = format!("take {}", item);
                 &tmp
             },
-            DropItem{item} => {
+            Drop{item} => {
                 tmp = format!("drop {}", item);
                 &tmp
             },
@@ -146,7 +290,7 @@ impl Droid {
         let present_location = santas_ship.origin;
         Droid { santas_ship, present_location, rx, tx }
     }
-    async fn send_command(&mut self, command: DroidCommand) -> Result<(),Error> {
+    async fn send_command(&mut self, command: &DroidCommand) -> Result<(),Error> {
         for ch in command.to_str().chars().chain(vec!['\n'].into_iter()) {
             // Send a command to Droid's Intcode Computer
             if let Err(_) = self.tx.send(ch as isize).await {
@@ -158,9 +302,11 @@ impl Droid {
     async fn read_response(&mut self) -> Result<String,Error> {
         let mut response = String::new();
         loop {
-            // Fetch prompt
+            // Fetch a single line of response
             match self.rx.next().await {
-                Some(10) => {break;},
+                Some(10) => {
+                    break;
+                },
                 Some(ans) => response.push(ans as u8 as char),
                 None => return Err(DroidComms {msg: "Incode computer stopped transmitting.".to_string()}),
             };
