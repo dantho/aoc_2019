@@ -39,7 +39,7 @@ fn initiate_search(filename: &'static str) -> Result<usize,Error> {
     }}).collect();
     println!("Keys: {}", keynames);
     println!("Doors: {}", doornames);
-    let paths: HashSet<String> = find_paths(room_map.clone(), entrance_loc)?;
+    let paths: Vec<String> = find_paths(room_map.clone(), entrance_loc)?;
 
     // let part1 = pick_up_all_keys(room_map.clone(), entrance_loc)?;
     // let part2 = 0;
@@ -74,24 +74,25 @@ impl SearchPath {
 // find_paths uses recursive pathfinding via dijkstra to identify all possible paths
 // from entrance to all items on the map (Doors and Keys)
 // The same items may appear at the beginning of two or more paths if the paths diverge after some distance
-fn find_paths(mut my_own_map: WorldMap, starting_loc: Location) -> Result<HashSet<String>, Error> {
+fn find_paths(mut my_own_map: WorldMap, starting_loc: Location) -> Result<Vec<String>, Error> {
     let paths = match find_all_items(&mut my_own_map, 0, starting_loc) {
-        None => return Ok(HashSet::new()),
+        None => return Ok(Vec::new()),
         Some(vec_of_vecs) => vec_of_vecs,
     };
     println!("Paths:");
     for path in &paths {
         println!("{:?}", path);
     }
-    let string_paths: HashSet<String> = paths.iter().map(|path|{
+    let orig_paths_with_doors: HashSet<String> = paths.iter().map(|path|{
         path.to_string()
     }).collect();
-    for path in &string_paths {
+    println!("Paths (as string) with doors:");
+    for path in &orig_paths_with_doors {
         println!("{}", path);
     }
     //build dependency tree (bush?)
     let mut key_dependencies: BTreeMap<char,HashSet<char>> = BTreeMap::new();
-    for path_str in &string_paths {
+    for path_str in &orig_paths_with_doors {
         let mut doors:Vec<char> = Vec::new();
         for dk in path_str.chars().rev() {
             match dk {
@@ -113,21 +114,75 @@ fn find_paths(mut my_own_map: WorldMap, starting_loc: Location) -> Result<HashSe
     for k in &key_dependencies {
         println!("{:?}", k);
     }
-    let deep_dependencies: Vec<_> = key_dependencies.iter().map(|(k,_)| {
-        (k,dependency_dive(k, &key_dependencies))
+    let deep_dependencies: BTreeMap<_,_> = key_dependencies.iter().map(|(k,_)| {
+        (*k,dependency_dive(k, &key_dependencies))
     }).collect();
-    println!("Deep Dive for Dependencies:");
+    println!("Deep Dependencies:");
     for pair in &deep_dependencies {
         println!("{:?}", pair);
     }
-    let deep_depth: Vec<_> = key_dependencies.iter().map(|(k,_)| {
-        (k,dependency_depth(k, &key_dependencies))
+    let deep_depth: BTreeMap<_,_> = key_dependencies.iter().map(|(k,_)| {
+        (*k,dependency_depth(k, &key_dependencies))
     }).collect();
-    println!("Deep Dive for Dependency Depth:");
+    println!("Dependency Depth:");
     for pair in &deep_depth {
         println!("{:?}", pair);
     }
-    Ok(string_paths)
+
+    let walk_paths = generate_all_walk_paths(&orig_paths_with_doors, &key_dependencies, &deep_dependencies, &deep_depth);
+    println!("Walking paths:");
+    for walk in &walk_paths {
+        println!("> {:?}", walk);
+    }
+    Ok(walk_paths)
+}
+fn generate_all_walk_paths(paths: &HashSet<String>, deps: &BTreeMap<char, HashSet<char>>, deep_deps: &BTreeMap<char, HashSet<char>>, deep_depth: &BTreeMap<char, usize>) -> Vec<String> {
+    println!("Path count: {}, paths: {:?}", paths.len(), paths);
+    // end recursion when all keys are gone from all paths
+    if 0==paths.len() {return Vec::new()};
+    // just double-checking for a set of empty paths (unnecessary?)
+    if paths.iter().fold(true,|b,s| {b && 0==s.len()}) {return Vec::new()};
+    // for each path in paths,
+    //      examine starting char(s) for one or more keys which are not locked behind doors
+    //      then (for each path with keys to pick up)
+    //          "pick them up" by cloning all paths and removing it/them from all paths.
+    //             remove associated doors, too.
+    //          recurse with the modified/reduced clone
+    //          append each walking_path returned above to key(s) removed here,
+    //          Add walking_path(s) to list of cummulative walking paths to be returned
+    // return list of all walking paths
+    let mut walking_paths: Vec<String> = Vec::new();
+    for path in paths {
+        let mut keys_removed_on_this_path = HashSet::new();
+        for key_or_door in path.chars().rev() {
+            if is_key(key_or_door) { // it's a key... without any door in the way... so let's remove it (aka "pick it up")
+                let new_key = keys_removed_on_this_path.insert(key_or_door);
+                assert!(new_key);
+            } else {
+                let this_doors_key = key_or_door.to_ascii_lowercase();
+                if keys_removed_on_this_path.contains(&this_doors_key) {
+                    continue; // recently unlocked/removed, let's find more keys
+                } else {
+                    break; // locked, we've reached our limit here, let's process previously removed keys
+                } 
+            };
+        }
+        if keys_removed_on_this_path.len() > 0 {
+            let mut reduced_paths = paths.clone();
+            for key in &keys_removed_on_this_path {
+                remove_key2(key, &mut reduced_paths)
+            }
+            let sub_paths = generate_all_walk_paths(&reduced_paths, &deps, &deep_deps, &deep_depth);
+            for sub_string in sub_paths {
+                walking_paths.push(format!("{}{}", keys_removed_on_this_path.iter().collect::<String>(), sub_string));
+            }
+        }
+    }
+    walking_paths
+}
+// There's GOT to be an easier way!
+fn last_char(path: &str) -> Option<char> {
+    path.chars().rev().take(1).fold(None,|_,ch|{Some(ch)}) 
 }
 // fn combinatorial_paths(deps: &BTreeMap<char, HashSet<char>>, paths: &Vec<String>) -> Vec<String> {
 //     // println!("deps.len(): {}", deps.len());
@@ -162,15 +217,14 @@ fn remove_key(key: &char, deps: &mut BTreeMap<char, HashSet<char>>) {
         others.remove(key);
     }
 }
-fn remove_key2(key: &char, paths: &mut Vec<String>) {
-    let mut modified = Vec::new();
-    for path in paths.into_iter() {
+fn remove_key2(key: &char, paths: &mut HashSet<String>) {
+    let mut modified = HashSet::new();
+    for path in paths.iter() {
         let tmp = path.chars().filter_map(
             |ch| { if ch == key.to_ascii_lowercase() || ch == key.to_ascii_uppercase() {None} else {Some(ch)}
         }).collect::<String>();
-        modified.push(tmp);
+        modified.insert(tmp);
     };
-    assert_eq!(paths.len(), 0);
     *paths = modified;
 }
 fn dependency_dive(key: &char, deps: &BTreeMap<char, HashSet<char>>) -> HashSet<char> {
