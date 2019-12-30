@@ -9,7 +9,7 @@ use std::io::prelude::*;
 use std::io::{BufReader, Write, stdout};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Debug;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap,HashSet};
 use ExplorerMovement::*;
 use MapData::*;
 use Error::*;
@@ -27,12 +27,26 @@ fn initiate_search(filename: &'static str) -> Result<usize,Error> {
     let entrance_loc = room_map.find_entrance()?;
     room_map.clear_location(entrance_loc)?; // Remove the Entrance.  We don't need it anymore.
     room_map.clear_distances();
-    let part1 = pick_up_all_keys(room_map.clone(), entrance_loc)?;
-    let part2 = 0;
-    println!("");
-    println!("Part 1: Fewest steps to pickup all the keys is {}", part1 );
-    println!("Part 2: TBD is {}", part2 );
-    Ok(part1)
+    let keynames: String = room_map.data.iter().filter_map(|(_,item)|{match item
+    {
+        Key(k,_) => Some(k),
+        _ => None
+    }}).collect();
+    let doornames: String = room_map.data.iter().filter_map(|(_,item)|{match item
+    {
+        Door(d,_) => Some(d),
+        _ => None
+    }}).collect();
+    println!("Keys: {}", keynames);
+    println!("Doors: {}", doornames);
+    let paths: HashSet<String> = find_paths(room_map.clone(), entrance_loc)?;
+
+    // let part1 = pick_up_all_keys(room_map.clone(), entrance_loc)?;
+    // let part2 = 0;
+    // println!("");
+    // println!("Part 1: Fewest steps to pickup all the keys is {}", part1 );
+    // println!("Part 2: TBD is {}", part2 );
+    Ok(0)
 }
 #[derive(Debug)]
 enum Error {
@@ -44,137 +58,175 @@ enum Error {
 }
 #[derive(PartialEq, Debug)]
 struct SearchPath {
-    keys: Vec<(usize,Location)>,
-    door_at_end: Option<MapData>,
+    items: Vec<(char,usize,Location)>,
 }
-impl SearchPath {
-    fn new(first_key: (usize, Location)) -> Self {
-        let keys = vec![first_key];
-        let door_at_end = None;
-        SearchPath {keys,door_at_end}
+impl ToString for SearchPath {
+    fn to_string(&self) -> String {
+            self.items.iter().map(|(ch,_,_)|{*ch}).collect::<String>()
     }
 }
-// Return value is step count required to find all FURTHER keys remaining on this copy of the map,
-// or a MAX value to indicate failure (only locked doors found)
-fn pick_up_all_keys(mut my_own_map: WorldMap, starting_loc: Location) -> Result<usize, Error> {
-    // Algo: 
-    // 1) Find all Keys we can reach without going through a locked door
-    //    1.1) If None found, we're done! TERMINATE RECURSION and return 0 steps
-    // 2) For each of the above: 
-    //    2.1) Jump to target location (accumulate total steps)
-    //    2.2) Pick up key or unlock door
-    //    2.3) Recurse by cloning current map and calling self
-    let multiple_paths = match find_accessible_keys(&mut my_own_map, 0, starting_loc) {
-        None => return Ok(0),
+impl SearchPath {
+    fn new(first_key: (char,usize, Location)) -> Self {
+        let items = vec![first_key];
+        SearchPath {items}
+    }
+}
+// find_paths uses recursive pathfinding via dijkstra to identify all possible paths
+// from entrance to all items on the map (Doors and Keys)
+// The same items may appear at the beginning of two or more paths if the paths diverge after some distance
+fn find_paths(mut my_own_map: WorldMap, starting_loc: Location) -> Result<HashSet<String>, Error> {
+    let paths = match find_all_items(&mut my_own_map, 0, starting_loc) {
+        None => return Ok(HashSet::new()),
         Some(vec_of_vecs) => vec_of_vecs,
     };
-    // Now here's the TRICKY PART!
-    // RULES BASED ANALYSIS OF PATH OPTIONS -- MUST CHOOSE THE BEST PATH EVERY TIME!
-    // Examine the list of ALL possbile paths, each containing one more keys
-    // and choose the path with the most keys.  (Greedy algorithm)
-    // In case of a tie, choose the path that is shortest
-    // In case of another tie, choice is arbitrary
-    // Then recurse down that chosen path
-
-    let complete_path_count = multiple_paths.iter().filter(|path| {path.door_at_end == None}).count();
-    let multiple_paths: Vec<_> = if complete_path_count > 0 {
-        multiple_paths.into_iter().filter(|path| {path.door_at_end == None}).collect()
-    } else {
-        multiple_paths
-    };
-    let highest_key_count = multiple_paths.iter().fold(0, |highest_cnt, path| {
-        if path.keys.len() > highest_cnt {path.keys.len()} else {highest_cnt}
-    });
-    assert_ne!(highest_key_count, 0);
-    if DBG {println!("highest_key_count: {}", highest_key_count);}
-
-    // Filter to include only paths with highest count
-    let multiple_paths_iter = multiple_paths.iter().filter(|path|{path.keys.len() == highest_key_count});
-    // Now find shortest path
-    let (_, maybe_path) = multiple_paths_iter.fold((std::usize::MAX,None), |(min_dist,min_path), path| {
-        path.keys.iter().fold((min_dist,min_path), |(min_dist,min_path),(dist,_)| {        
-            if *dist < min_dist {
-                (*dist, Some(path))
-            } else {
-                (min_dist, min_path)
+    println!("Paths:");
+    for path in &paths {
+        println!("{:?}", path);
+    }
+    let string_paths: HashSet<String> = paths.iter().map(|path|{
+        path.to_string()
+    }).collect();
+    for path in &string_paths {
+        println!("{}", path);
+    }
+    //build dependency tree (bush?)
+    let mut key_dependencies: BTreeMap<char,HashSet<char>> = BTreeMap::new();
+    for path_str in &string_paths {
+        let mut doors:Vec<char> = Vec::new();
+        for dk in path_str.chars().rev() {
+            match dk {
+                door if is_door(door) => doors.push(to_key(door)),
+                key if is_key(key) => {
+                    match key_dependencies.get_mut(&key) {
+                        Some(deps) => for d in &doors {deps.insert(*d);},
+                        None => {key_dependencies.insert(key, doors.iter().cloned().collect());},
+                    }
+                },
+                _ => panic!("Should be a key or a door.  No?"),
             }
-        })
-    });
-    assert_ne!(maybe_path, None);
-    let path = maybe_path.unwrap();
-    let mut keys_removed = 0;
-    let (dist_to_end, end_of_path) = path.keys.iter().fold((0,(0,0)),|(max_dist, max_loc), (dist,loc)| {
-        match my_own_map.pick_up_key(*loc) {
-            Ok(k) => if DBG {println!("Picked up {:?}", Key(k,0))},
-            Err(e) => {
-                if DBG {println!("Key Pickup FAIL: location {:?} contains {:?}, not a key.", loc, my_own_map.data.get(&loc).unwrap())}
-                panic!(format!("Err inside closure: {:?}", e))
-            },
-        };
-        keys_removed += 1;
-        if *dist > max_dist {
-            (*dist, *loc)
-        } else {
-            (max_dist, max_loc)
+            if is_door(dk) {
+                doors.push(to_key(dk));
+            }
         }
-    });
-    println!("");
-    assert_eq!(keys_removed,highest_key_count);
-    my_own_map.clear_distances();
-    Ok(dist_to_end + pick_up_all_keys(my_own_map, end_of_path)?)
-
-    // // NOW HERE'S THE TRICKY PART!
-    // // RECURSE INTO ALL POSSIBLE CHOICES FOR NEXT TARGET AND TAKE THE
-    // // Lowest TOTAL step size which is able to remove the rest of the stuff
-    // // ToDo: Got work to do on accumulating STEPS properly.
-    // // ToDo: iterate through targets and recurse into (cloning map for each) and accumulate-in only the solution with the MIN TOTAL STEPS
-    // // if DBG {println!("Recursing for Doors and Keys: {:?}", keys);}
-    // let result_step_count = keys.into_iter().fold(Ok(std::usize::MAX), |result_min, (loc, dist)| {
-    //     let mut multiverse_n = my_own_map.clone();
-    //     match result_min {
-    //         // pickup key (and unlock door) then continue search by recursing
-    //         Ok(min) => {
-    //             match multiverse_n.data.get(&loc) {
-    //                 Some(Key(k)) => {
-    //                     let key_name = *k;
-    //                     let d = k.to_ascii_uppercase();
-    //                     if DBG {print!("Picking up Key({})", k);}
-    //                     multiverse_n.pick_up_key(loc).ok().unwrap();
-    //                     if DBG {println!(" and unlocking Door({}) {}", d, dist);}
-    //                     multiverse_n.unlock_door(key_name).ok().unwrap();
-    //                 },
-    //                 _ => panic!("Something other than a key found in keys!"),
-    //             };
-    //             // Recurse from this location
-    //             // Cloning map 'cause we're choosing among alternate (recursive) universes
-    //             // and discarding the rest like trash.
-    //             match pick_up_all_keys(multiverse_n, loc) {
-    //                 Ok(v) => if v+dist < min {Ok(v+dist)} else {Ok(min)},
-    //                 e => e,
-    //             }
-    //         }
-    //         // manually pass error along the fold closure path
-    //         e => e,
-    //     }
-    // });
-    // if DBG {println!("Min steps to clear remaining: {:?}", result_step_count );}
-    // result_step_count
+    }
+    println!("Dependency Tree:");
+    for k in &key_dependencies {
+        println!("{:?}", k);
+    }
+    let deep_dependencies: Vec<_> = key_dependencies.iter().map(|(k,_)| {
+        (k,dependency_dive(k, &key_dependencies))
+    }).collect();
+    println!("Deep Dive for Dependencies:");
+    for pair in &deep_dependencies {
+        println!("{:?}", pair);
+    }
+    let deep_depth: Vec<_> = key_dependencies.iter().map(|(k,_)| {
+        (k,dependency_depth(k, &key_dependencies))
+    }).collect();
+    println!("Deep Dive for Dependency Depth:");
+    for pair in &deep_depth {
+        println!("{:?}", pair);
+    }
+    Ok(string_paths)
 }
-fn find_accessible_keys(shared_map: &mut WorldMap, present_distance: usize, present_loc: Location) -> Option<Vec<SearchPath>> {
+// fn combinatorial_paths(deps: &BTreeMap<char, HashSet<char>>, paths: &Vec<String>) -> Vec<String> {
+//     // println!("deps.len(): {}", deps.len());
+//     if 0 == paths.len() {  // end of recursion
+//         paths.push(String::new());
+//         return paths;
+//     }
+//     let mut mod_paths: = paths.clone();
+//     for path in &mut mod_paths {
+//             // skip paths that start with doors
+//             if !path.chars().rev().take(1).collect::<Vec<char>>()[0].is_ascii_lowercase() {continue;} 
+//             let mut deps_less_n = deps.clone();
+//             let mut paths_less_n = paths.clone();
+//             // Done:  Make a key2 version of remove_key that works with paths.
+//             // Extend removal logic here to remove more than one key if path permits.
+//             // Remove Doors from paths before sending them in here.
+//             //    Or, maybe, consider door removal logic here... -- might make finding accessible trivial again.
+//             // The point of all of the above is to perform the NO-BRAINER of
+//             // scooping up all accessible keys in a path before turning around to make another move.
+//             remove_key(&accessible, &mut deps_less_n);
+//             remove_key2(&accessible, &mut paths_less_n);
+//             for sub_path in combinatorial_paths(&deps_less_n, &paths_less_n) {
+//                 let new_path = format!{"{}{}", accessible, sub_path};
+//                 paths.push(new_path);
+//             }
+//     }
+//     paths
+// }
+fn remove_key(key: &char, deps: &mut BTreeMap<char, HashSet<char>>) {
+    deps.remove(key);
+    for (_, others) in deps {
+        others.remove(key);
+    }
+}
+fn remove_key2(key: &char, paths: &mut Vec<String>) {
+    let mut modified = Vec::new();
+    for path in paths.into_iter() {
+        let tmp = path.chars().filter_map(
+            |ch| { if ch == key.to_ascii_lowercase() || ch == key.to_ascii_uppercase() {None} else {Some(ch)}
+        }).collect::<String>();
+        modified.push(tmp);
+    };
+    assert_eq!(paths.len(), 0);
+    *paths = modified;
+}
+fn dependency_dive(key: &char, deps: &BTreeMap<char, HashSet<char>>) -> HashSet<char> {
+    let dep_cnt = deps.get(key).unwrap().len();
+    if dep_cnt == 0 {return HashSet::new();} // End recursion
+    let mut sub_deps = HashSet::new();
+    for dep_key in deps.get(key).unwrap() {
+        sub_deps.insert(*dep_key);
+        for deeper_dep_key in dependency_dive(dep_key, deps) {
+            sub_deps.insert(deeper_dep_key);
+        }
+    }
+    sub_deps
+}
+fn dependency_depth(key: &char, deps: &BTreeMap<char, HashSet<char>>) -> usize {
+    let dep_cnt = deps.get(key).unwrap().len();
+    if dep_cnt > 0 {
+        1 + deps.get(key).unwrap().iter().fold(0,|max_depth, dep| {
+                let sub_depth = dependency_depth(dep, deps);
+                if sub_depth > max_depth {sub_depth} else {max_depth}
+            })
+    } else {
+        0 // Ends recursion
+    }
+}
+fn is_door(ch: char) -> bool {
+    ch.is_ascii_uppercase()
+}
+fn is_key(ch: char) -> bool {
+    ch.is_ascii_lowercase()
+}
+fn to_key(ch: char) -> char {
+    ch.to_ascii_lowercase()
+}
+fn find_all_items(shared_map: &mut WorldMap, present_distance: usize, present_loc: Location) -> Option<Vec<SearchPath>> {
     let mut key_found_here = false;
+    let mut door_found_here = false;
+    let mut item_name: Option<char> = None;
     match shared_map.data.get_mut(&present_loc) {
         Some(Wall) => {return None}, // Hit a wall.  END RECURSION
-        Some(Door(d)) => {
-            if DBG {println!("Found locked {:?} at {:?}", Door(*d), present_loc );}
-            return Some(vec![SearchPath {keys: Vec::new(), door_at_end: Some(Door(*d))}])
-        }, // Hit a locked door.  END RECURSION
-        Some(Empty(dist)) if *dist <= present_distance => return None, // *d <= present_distance, so been here, done that. END RECURSION
         Some(Empty(dist)) => {
+            if *dist <= present_distance {return None;} // *d <= present_distance, so been here, done that. END RECURSION
             *dist = present_distance; // label present location with distance marker -- critical step! Continue searching
         },
-        Some(Key(k,dist)) if *dist <= present_distance => return None, // Found this key already.  END RECURSION
+        Some(Door(d,dist)) => {
+            if *dist <= present_distance {return None;} // *d <= present_distance, so been here, done that. END RECURSION
+            if DBG {println!("Found locked {:?} at {:?}", Door(*d,present_distance), present_loc );}
+            item_name = Some(*d);
+            *dist = present_distance; // label present location with distance marker -- critical step! Continue searching
+            door_found_here = true; // FOUND a target.  Continue searching for more.
+        }, // Hit a locked door.  END RECURSION
+        Some(Key(_,dist)) if *dist <= present_distance => return None, // Found this key already.  END RECURSION
         Some(Key(k,dist)) => {
-            if DBG {println!("Found {:?} at {:?}", Key(*k,0), present_loc );}
+            if *dist <= present_distance {return None;} // *d <= present_distance, so been here, done that. END RECURSION
+            if DBG {println!("Found {:?} at {:?}", Key(*k,present_distance), present_loc );}
+            item_name = Some(*k);
             *dist = present_distance; // label present location with distance marker -- critical step! Continue searching
             key_found_here = true; // FOUND a target.  Continue searching for more.
         },
@@ -184,28 +236,28 @@ fn find_accessible_keys(shared_map: &mut WorldMap, present_distance: usize, pres
     // recurse in cardinal directions here using present_distance + 1
     let mut multiple_paths = Vec::new();
     for dir in vec![North, South, East, West] {
-        if let Some(mut vec_of_paths) = find_accessible_keys(shared_map, present_distance+1, dir.move_from(present_loc)) {
+        if let Some(mut vec_of_paths) = find_all_items(shared_map, present_distance+1, dir.move_from(present_loc)) {
              multiple_paths.append(&mut vec_of_paths);
         }
     }
-    if key_found_here {
-        let this_key = (present_distance,present_loc);
+    if key_found_here||door_found_here {
+        let this_item = (item_name.unwrap(),present_distance,present_loc);
         match multiple_paths.len() {
             0 => {
-                multiple_paths.push(SearchPath::new(this_key));
+                multiple_paths.push(SearchPath::new(this_item));
                 if DBG {println!("Sole key on this path: {:?}", multiple_paths);}
                 Some(multiple_paths)    
             },
             1 => {
                 for path in &mut multiple_paths {
-                    path.keys.push(this_key);
+                    path.items.push(this_item);
                 }
                 if DBG {println!("Key added to single path: {:?}", multiple_paths);}
                 Some(multiple_paths)    
             },
             _ => {
                 for path in &mut multiple_paths {
-                    path.keys.push(this_key);
+                    path.items.push(this_item);
                 }
                 if DBG {println!("Key added to multiple_paths: {:?}", multiple_paths);}
                 Some(multiple_paths)    
@@ -241,7 +293,7 @@ enum MapData {
     Empty(usize),
     Wall,
     Entrance,
-    Door(char),
+    Door(char,usize),
     Key(char,usize),
 }
 // See https://jrgraphix.net/r/Unicode/2700-27BF for Dingbats in unicode
@@ -251,7 +303,7 @@ impl MapData {
             Empty(_) => '.',
             Wall => '#',
             Entrance => '@',
-            Door(d) => d,
+            Door(d,_) => d,
             Key(k,_) => k,
         }
     }
@@ -267,7 +319,7 @@ impl TryFrom<char> for MapData {
             en if en == Entrance.to_char() => Entrance,
             mt if mt == Empty(0).to_char() => Empty(std::usize::MAX),
             w if w == Wall.to_char() => Wall,
-            d if d.is_alphabetic() && d.is_uppercase() => Door(d),
+            d if d.is_alphabetic() && d.is_uppercase() => Door(d,std::usize::MAX),
             k if k.is_alphabetic() && k.is_lowercase() => Key(k,std::usize::MAX),
             _ => return Err(Error::IllegalMapData { ch }),
         };
@@ -299,7 +351,7 @@ impl ExplorerMovement {
         }
     }
 }
-#[derive(Clone)]
+#[derive(Debug,Clone)]
 struct WorldMap {
     data: BTreeMap<Location, MapData>,
 }
@@ -334,8 +386,8 @@ impl WorldMap {
         };
         if let Some(door_loc) = self.find_door(door_name)? {
             match self.data.get_mut(&door_loc) {
-                Some(Door(d)) if *d == door_name => (),
-                Some(Door(d)) => return Err(UnlockFail {msg: format!("Can't unlock door '{}' using key '{}'.", d, key_name)}),
+                Some(Door(d,_)) if *d == door_name => (),
+                Some(Door(d,_)) => return Err(UnlockFail {msg: format!("Can't unlock door '{}' using key '{}'.", d, key_name)}),
                 _ => return Err(ItemNotFound {msg: format!("Door '{}' not found at {:?}", door_name, door_loc)}),
             }
             self.clear_location(door_loc)?;
@@ -348,7 +400,7 @@ impl WorldMap {
             None => return Err(MapAssertFail {msg: format!("Can't clear what's not there! {:?}",loc)}),
         };
         match target {
-            Entrance|Door(_)|Key(_,_) => *target = Empty(std::usize::MAX), // CLEARED AN ITEM OFF MAP
+            Entrance|Door(_,_)|Key(_,_) => *target = Empty(std::usize::MAX), // CLEARED AN ITEM OFF MAP
             Wall => return Err(MapAssertFail {msg: format!("Can't clear a Wall at {:?} !",loc)}),
             Empty(_) => return Err(MapAssertFail {msg: format!("Already Empty at {:?} !",loc)}),
         };
@@ -361,7 +413,7 @@ impl WorldMap {
     }
     fn find_door(&self, door_name: char) -> Result<Option<Location>,Error> {
         let door = self.data.iter().fold(None,|maybe_found, (loc,item)| {
-            if *item == Door(door_name) {Some(*loc)} else {maybe_found}
+            if *item == Door(door_name,std::usize::MAX) {Some(*loc)} else {maybe_found}
         });
         Ok(door)
     }
