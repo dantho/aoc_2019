@@ -17,7 +17,7 @@ use Error::*;
 type Location = (usize,usize);
 
 fn main() -> Result<(),Error> {
-    let filename = "ex5.txt";
+    let filename = "input.txt";
     let part1 = initiate_search(filename)?;
     println!("Min Step Count to clear keys is {}", part1);
     Ok(())
@@ -66,12 +66,27 @@ fn initiate_search(filename: &'static str) -> Result<usize,Error> {
     println!("Doors: {}", doornames);
     // All possible walking paths through "maze" with dependancies (Doors) considered
     let paths: Vec<String> = find_paths(room_map.clone(), entrance_loc)?;
-    let stepcount_paths = paths.iter()
-        .map(|path| {(room_map.total_step_count(&path).unwrap(), path)}).collect::<Vec<_>>();
-    let min_step_count = stepcount_paths.iter().fold(std::usize::MAX,|min_so_far, (cnt,_)| {
-        if *cnt < min_so_far {*cnt} else {min_so_far}
+    let stepcount_paths = paths.into_iter()
+        .map(|path| {
+            (room_map.total_step_count(&path).unwrap(), path)
+        }).collect::<Vec<_>>();
+    let stepcount_paths = stepcount_paths.into_iter().map(|(cnt_sans_entrance, mut path)| {
+        room_map.clear_distances();
+        room_map.map_distance(entrance_loc, 0).unwrap();
+        let first_key = path.pop().unwrap();
+        path.push(first_key);
+        let first_key_loc = room_map.key_index.get(&first_key).unwrap();
+        let entrance_dist = match room_map.data.get(&first_key_loc) {
+            Some(Key(_,dist)) => dist,
+            _ => panic!("This hack is getting tiring"),
+        };
+        println!("In path {:?} entrance dist: {}, remainder: {}", path, entrance_dist, cnt_sans_entrance );
+        (entrance_dist+cnt_sans_entrance, path)
     });
-    
+    let min_step_count = stepcount_paths.fold(std::usize::MAX,|min_so_far, (cnt,_)| {
+        if cnt < min_so_far {cnt} else {min_so_far}
+    });
+
 
     Ok(min_step_count)
 }
@@ -171,31 +186,21 @@ fn generate_all_walk_paths(paths: &HashSet<String>, deps: &BTreeMap<char, HashSe
     // println!("Path count: {}, paths: {:?}", paths.len(), paths);
     // PLAN:
     // for each path in paths,
-    //      examine starting char(s) for one or more keys which are not locked behind doors
+    //      examine starting char(s) for a key which is not locked behind doors
     //      then (for each path with keys to pick up)
-    //          "pick them up" by cloning all paths and removing it/them from all paths.
+    //          "pick them up" by cloning all alleys and removing it from all alleys
     //             remove associated doors, too.
     //          recurse with the modified/reduced clone
-    //          append each walking_path returned above to key(s) removed here,
+    //          append each walking_path returned above to key removed here,
     //          Add walking_path(s) to list of cummulative walking paths to be returned
     // return list of all walking paths
     let mut walking_paths: Vec<String> = Vec::new();
-    let mut full_path_only = false;
-    // be GREEDY about full paths, regardless of distance, to exclusion of all others
     for path in paths {
-        if is_full_path(path,deep_depth_deps) {
-            full_path_only = true;  // If any path is full, then exlude all partial paths and process ONLY full paths
-            break;
-        }
-    }
-    for path in paths {
-        if full_path_only {
-            if !is_full_path(path, deep_depth_deps) {continue};  // abort this path (for now) if not full
-        }
         let mut keys_removed_on_this_path = Vec::new();
         for key_or_door in path.chars().rev() {
             if is_key(key_or_door) { // it's a key... without any door in the way... so let's remove it (aka "pick it up")
                 keys_removed_on_this_path.push(key_or_door);
+                break;
             } else {
                 let this_doors_key = key_or_door.to_ascii_lowercase();
                 if keys_removed_on_this_path.contains(&this_doors_key) {
@@ -435,7 +440,7 @@ impl WorldMap {
                 for (key_other, loc_other) in &self.key_index {
                     if *key_other!=key_a {
                         let distance_between = match self.data.get(loc_other) {
-                            Some(Key(k,dist)) => *dist,
+                            Some(Key(_,dist)) => *dist,
                             _ => return Err(MapAssertFail {msg: "Expected Key here.".to_string()}),
                         };
                         self.key_pair_cache.insert((key_a,*key_other), distance_between);
