@@ -28,7 +28,6 @@ enum Error {
     IllegalMapData {ch: char},
     MapAssertFail {msg: String},
     BadKeyName {name: char},
-    UnlockFail {msg: String},
     ItemNotFound {msg: String},
 }
 #[derive(PartialEq, Debug)]
@@ -134,143 +133,30 @@ fn find_paths(mut my_own_map: WorldMap, starting_loc: Location) -> Result<Vec<St
     for k in &key_dependencies {
         println!("{:?}", k);
     }
-    // map to deep dependencies
-    let deep_dependencies: BTreeMap<_,_> = key_dependencies.iter().map(|(k,_)| {
-        (*k,dependency_dive(k, &key_dependencies))
-    }).collect();
-    println!("Deep Dependencies:");
-    for pair in &deep_dependencies {
-        println!("{:?}", pair);
-    }
-    // count deep dependency depth
-    let deep_depth: BTreeMap<_,_> = key_dependencies.iter().map(|(k,_)| {
-        (*k,dependency_depth(k, &key_dependencies))
-    }).collect();
-    println!("Dependency Depth:");
-    for pair in &deep_depth {
-        println!("{:?}", pair);
-    }
-    // concatenate deep dependancies and depth of same
-    let deep_depth_deps = deep_depth.into_iter().zip(deep_dependencies.into_iter())
-    .map(|((ch1,depth),(ch1prime,deps))| {
-        assert_eq!(ch1,ch1prime);
-        (ch1, (depth,deps))
-    }).collect();
-    // now make it rain
-    let walk_paths = generate_all_walk_paths(&orig_alleys_with_doors, &key_dependencies, &deep_depth_deps);
-    println!("Walking paths:");
-    for walk in &walk_paths {
-        println!("> {:?}", walk);
-    }
+    let walk_paths = generate_walk_paths("".to_string(), &key_dependencies); 
     Ok(walk_paths)
 }
-fn is_full_path(path: &str, deep_depth_deps: &BTreeMap<char, (usize, HashSet<char>)> ) -> bool {
-    let mut at_least_one_key_was_found = false;
-    for k in path.chars() {
-        if is_key(k) {
-            at_least_one_key_was_found = true;
-            if let Some((_,v)) = deep_depth_deps.get(&k) {
-                if v.len() > 0 {
-                    return false;
+fn generate_walk_paths(path_so_far: String, deps: &BTreeMap<char, HashSet<char>>) -> Vec<String> {
+    let next_keys = deps.iter().filter(|(key,req_keys)|{
+        if path_so_far.contains(**key) {
+            false
+        } else {
+            let mut all_deps_satisfied = true;
+            for k in req_keys.iter() {
+                if !path_so_far.contains(*k) {
+                    all_deps_satisfied = false;
+                    break;
                 }
             }
+            all_deps_satisfied
         }
+    }).map(|(k,_)| {*k}).collect::<Vec<char>>();
+    if next_keys.len() == 0 {return vec![path_so_far]}; // End recursion
+    let mut collect_results = Vec::new();
+    for key in next_keys {
+        collect_results.append(&mut generate_walk_paths(format!("{}{}",key,path_so_far), deps));
     }
-    at_least_one_key_was_found // but no Doors
-}
-fn generate_all_walk_paths(paths: &HashSet<String>, deps: &BTreeMap<char, HashSet<char>>, deep_depth_deps: &BTreeMap<char, (usize, HashSet<char>)>) -> Vec<String> {
-    // end recursion when all keys are gone from all paths
-    if 0==paths.len() {return Vec::new()};
-    // just double-checking for a set of empty paths (unnecessary?)
-    if paths.iter().fold(true,|b,s| {b && 0==s.len()}) {return Vec::new()};
-    // println!("Path count: {}, paths: {:?}", paths.len(), paths);
-    // PLAN:
-    // for each path in paths,
-    //      examine starting char(s) for a key which is not locked behind doors
-    //      then (for each path with keys to pick up)
-    //          "pick them up" by cloning all alleys and removing it from all alleys
-    //             remove associated doors, too.
-    //          recurse with the modified/reduced clone
-    //          append each walking_path returned above to key removed here,
-    //          Add walking_path(s) to list of cummulative walking paths to be returned
-    // return list of all walking paths
-    let mut walking_paths: Vec<String> = Vec::new();
-    for path in paths {
-        let mut keys_removed_on_this_path = Vec::new();
-        for key_or_door in path.chars().rev() {
-            if is_key(key_or_door) { // it's a key... without any door in the way... so let's remove it (aka "pick it up")
-                keys_removed_on_this_path.push(key_or_door);
-                break;
-            } else {
-                let this_doors_key = key_or_door.to_ascii_lowercase();
-                if keys_removed_on_this_path.contains(&this_doors_key) {
-                    continue; // recently unlocked/removed, let's find more keys
-                } else {
-                    break; // locked, we've reached our limit here, let's process previously removed keys
-                } 
-            };
-        }
-        if keys_removed_on_this_path.len() > 0 {
-            let mut reduced_paths = paths.clone();
-            let mut ddd = deep_depth_deps.clone();
-            for key in &keys_removed_on_this_path {
-                remove_key_from_paths(key, &mut reduced_paths);
-                remove_key_from_ddd(key, &mut ddd)
-            }
-            let sub_paths = generate_all_walk_paths(&reduced_paths, &deps, &ddd);
-            let keys_removed_string = keys_removed_on_this_path.into_iter().collect::<Vec<char>>().iter().rev().collect::<String>();
-            if sub_paths.len() == 0 {
-                walking_paths.push(keys_removed_string);
-            } else {
-                for sub_string in sub_paths {
-                    walking_paths.push(format!("{}{}", sub_string, keys_removed_string));
-                }
-            }
-            // println!("path_in_paths: {:?}, keys_removed: {:?}", path, keys_removed_on_this_path);
-        }
-    }
-    walking_paths
-}
-fn remove_key_from_ddd(key: &char, deep_depth_deps: &mut BTreeMap<char, (usize, HashSet<char>)>) {
-    deep_depth_deps.remove(key);
-    for (_,deps) in deep_depth_deps.values_mut() {
-        deps.remove(key);
-    };
-}
-fn remove_key_from_paths(key: &char, paths: &mut HashSet<String>) {
-    let mut modified = HashSet::new();
-    for path in paths.iter() {
-        let tmp = path.chars().filter_map(
-            |ch| { if ch == key.to_ascii_lowercase() || ch == key.to_ascii_uppercase() {None} else {Some(ch)}
-        }).collect::<String>();
-        if tmp.len() > 0 {
-            modified.insert(tmp);
-        }
-    };
-    *paths = modified;
-}
-fn dependency_dive(key: &char, deps: &BTreeMap<char, HashSet<char>>) -> HashSet<char> {
-    let dep_cnt = deps.get(key).unwrap().len();
-    if dep_cnt == 0 {return HashSet::new();} // End recursion
-    let mut sub_deps = HashSet::new();
-    for dep_key in deps.get(key).unwrap() {
-        sub_deps.insert(*dep_key);
-        for deeper_dep_key in dependency_dive(dep_key, deps) {
-            sub_deps.insert(deeper_dep_key);
-        }
-    }
-    sub_deps
-}
-fn dependency_depth(key: &char, deps: &BTreeMap<char, HashSet<char>>) -> usize {
-    let dep_cnt = deps.get(key).unwrap().len();
-    if dep_cnt > 0 {
-        1 + deps.get(key).unwrap().iter().fold(0,|max_depth, dep| {
-                let sub_depth = dependency_depth(dep, deps);
-                if sub_depth > max_depth {sub_depth} else {max_depth}
-            })
-    } else {
-        0 // Ends recursion
-    }
+    collect_results
 }
 fn is_door(ch: char) -> bool {
     ch.is_ascii_uppercase()
@@ -461,34 +347,6 @@ impl WorldMap {
             }
         }
     }
-    fn pick_up_key(&mut self, loc: Location) -> Result<char,Error> {
-        let (key_found, key_distance) = match self.data.get_mut(&loc) {
-            Some(Key(k,dist)) => (*k,*dist),
-            _ => return Err(ItemNotFound {msg: format!("No Key at {:?}", loc)}),
-        };
-        self.unlock_door(key_found)?;
-        self.clear_location(loc)?;
-        if let Some(Empty(d)) = self.data.get_mut(&loc) {
-            *d = key_distance;
-        }
-        Ok(key_found)
-    }
-    fn unlock_door(&mut self, key_name: char) -> Result<(),Error> {
-        let door_name = if key_name.is_lowercase() {
-            key_name.to_ascii_uppercase()
-        } else {
-            return Err(BadKeyName {name: key_name})
-        };
-        if let Some(door_loc) = self.find_door(door_name)? {
-            match self.data.get_mut(&door_loc) {
-                Some(Door(d,_)) if *d == door_name => (),
-                Some(Door(d,_)) => return Err(UnlockFail {msg: format!("Can't unlock door '{}' using key '{}'.", d, key_name)}),
-                _ => return Err(ItemNotFound {msg: format!("Door '{}' not found at {:?}", door_name, door_loc)}),
-            }
-            self.clear_location(door_loc)?;
-        }
-        Ok(())
-    }
     fn clear_location(&mut self, loc: Location) -> Result<(),Error> {
         let target = match self.data.get_mut(&loc) {
             Some(item) => item,
@@ -505,12 +363,6 @@ impl WorldMap {
             assert!(false, format!("This spot, {:?} should be clear now.", loc));
         }
         Ok(())
-    }
-    fn find_door(&self, door_name: char) -> Result<Option<Location>,Error> {
-        let door = self.data.iter().fold(None,|maybe_found, (loc,item)| {
-            if let Door(d,_) = *item {if d == door_name {Some(*loc)} else {maybe_found}} else {maybe_found}
-        });
-        Ok(door)
     }
     fn find_entrance(&self) -> Result<Location,Error> {
         let entrance = self.data.iter().fold(None,|found_e, (loc,item)| {
