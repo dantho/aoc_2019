@@ -3,7 +3,7 @@ const ESC_CLS: &'static str = "\x1B[2J";
 // const ESC_CURSOR_ON: &'static str = "\x1B[?25h";
 const ESC_CURSOR_OFF: &'static str = "\x1B[?25l";
 const DBG: bool = false;
-const INFINITY: usize = std::usize::MAX/1_000_000_000_000*1_000_000_000_000-1;  // Very nearly max with lots of 999's at end to be visible as a "special" number
+const INFINITY: usize = std::usize::MAX/1_000_000_000_000_000*1_000_000_000_000_000-1;  // Very nearly max with lots of 999's at end to be visible as a "special" number
 
 use std::fs::File;
 use std::io::prelude::*;
@@ -18,7 +18,7 @@ use Error::*;
 type Location = (usize,usize);
 
 fn main() -> Result<(),Error> {
-    let filename = "input.txt";
+    let filename = "ex1.txt";
     let part1 = initiate_search(filename)?;
     println!("Min Step Count to clear keys is {}", part1);
     Ok(())
@@ -61,28 +61,8 @@ fn initiate_search(filename: &'static str) -> Result<usize,Error> {
         }}).collect();
     println!("Keys: {}", keynames);
     println!("Doors: {}", doornames);
-    // All possible walking paths through "maze" with dependancies (Doors) considered
-    let paths: Vec<String> = build_dependancy_tree_and_find_paths(room_map.clone())?;
-    println!("Found {} Paths", paths.len());
-    if paths.len()<10 {
-        println!("{:?}", paths);
-    }
-    let steps_on_path_tuples = paths.into_iter()
-        .map(|path| {
-            (room_map.total_step_count(&path).unwrap(), path)
-        }).collect::<Vec<_>>();
-    let min_step_count = steps_on_path_tuples.iter().fold(INFINITY,|min_so_far, (cnt,_)| {
-        if *cnt < min_so_far {*cnt} else {min_so_far}
-    });
-
-    Ok(min_step_count)
-}
-// find_paths uses recursive pathfinding via dijkstra with memoization to identify all possible paths
-// from entrance to all keys on the map
-// The same items will appear at the beginning of two or more paths when the paths diverge after some distance
-fn build_dependancy_tree_and_find_paths(mut my_own_map: WorldMap) -> Result<Vec<String>, Error> {
-    let alleys = match my_own_map.find_all_items(0, my_own_map.find_entrance()?) {
-        None => return Ok(Vec::new()),
+    let alleys = match room_map.find_all_items(0, room_map.find_entrance()?) {
+        None => panic!("Empty room??"),
         Some(vec_of_vecs) => vec_of_vecs,
     };
     println!("Alleys:");
@@ -97,45 +77,47 @@ fn build_dependancy_tree_and_find_paths(mut my_own_map: WorldMap) -> Result<Vec<
         println!("{}", alley);
     }
     // build dependency tree (bush?)
-    let mut key_dependencies: BTreeMap<char,HashSet<char>> = BTreeMap::new();
+    let mut key_dependencies: BTreeMap<char,Vec<char>> = BTreeMap::new();
     for alley_str in &orig_alleys_with_doors {
-        let mut door_keys:HashSet<char> = HashSet::new();
+        let mut door_keys:Vec<char> = Vec::new();
         for dk in alley_str.chars().rev() {
             match MapData::try_from(dk)? {
-                Entrance(_) => {door_keys.insert('@');}, // entrance is (FIRST DOOR and) FIRST KEY
-                Door(door,_) => {door_keys.insert(to_key(door));}, // doors are abstractions: they create key dependancies
+                Entrance(_) => {door_keys.push('@');}, // entrance is (FIRST DOOR and) FIRST KEY
+                Door(door,_) => {door_keys.push(to_key(door));}, // doors are abstractions: they create key dependancies
                 Key(key,_) => {
                     // the following match loop assumes that alleys can have duplicate sections, so keys can be found multiple times, redundantly.
                     match key_dependencies.get_mut(&key) {
-                        Some(deps) => for d in &door_keys {deps.insert(*d);}, // this key was found previously, processing a sibling alley, append door_keys as deps in case one is new, though this is likely all redundant
+                        Some(deps) => for d in &door_keys {deps.push(*d);}, // this key was found previously, processing a sibling alley, append door_keys as deps in case one is new, though this is likely all redundant
                         None => {key_dependencies.insert(key, door_keys.clone());}, // this key is completely new, clone door_keys as dependants.
                     }
                 },
                 _ => panic!("Should be a key, door, or entrance.  No?"),
             }
-            // // What is this for?
-            // if is_door(dk) {
-            //     door_keys.insert(to_key(dk));
-            // }
         }
     }
-    key_dependencies.insert('@', HashSet::new());
     println!("Dependency Tree:");
     for k in &key_dependencies {
         println!("{:?}", k);
     }
-    let walk_paths = my_own_map.generate_walk_paths("".to_string(), &key_dependencies);
-    println!("Walk Path count is {}", walk_paths.len());
-    Ok(walk_paths)
+    let remaining_key_dependencies = key_dependencies;
+    let min_step_count = room_map.find_min_steps('@', remaining_key_dependencies, &mut BTreeMap::new())?;
+    Ok(min_step_count)
 }
-fn is_entrance(ch: char) -> bool {
-    ch == '@'
-}
-fn is_door(ch: char) -> bool {
-    ch.is_ascii_uppercase()
-}
-fn is_key(ch: char) -> bool {
-    ch.is_ascii_lowercase()
+fn reachable(deps: &BTreeMap<char,Vec<char>>)-> Vec<char> {
+    deps.iter().filter_map(|(candidate, sub_deps)| {
+        let mut key_has_no_dependants = true; // Optimistic default
+        for dep_key in sub_deps {
+            if deps.contains_key(dep_key) {
+                key_has_no_dependants = false;
+                break;
+            }
+        }
+        if key_has_no_dependants {
+            Some(*candidate)
+        } else {
+            None
+        }
+    }).collect()
 }
 fn to_key(ch: char) -> char {
     ch.to_ascii_lowercase()
@@ -218,6 +200,33 @@ impl WorldMap {
         self.map_distance((loc.0,loc.1+1), distance+1)?; // East
         Ok(())
     }
+    // recursive memoized step count algo -- this is the key (no pun intended) to optimizing the search
+    fn find_min_steps(&mut self,
+            current_key: char,
+            remaining_key_dependencies: BTreeMap<char,Vec<char>>,
+            mut key_path_cache: &mut BTreeMap<(char, BTreeMap<char,Vec<char>>),usize>
+        ) -> Result<usize,Error> {
+        if 0 == remaining_key_dependencies.len() {
+            return Ok(0); // End recursion
+        }
+        // Is best path (from here) already cached? 
+        let cache_key = (current_key, remaining_key_dependencies.clone());
+        if let Some(dist) = key_path_cache.get(&cache_key) {
+            return Ok(*dist);
+        }
+        // Else recursively calculate (from here), cache, and return best path
+        let mut best_path = INFINITY;
+        for key in reachable(&remaining_key_dependencies) {
+            let mut deps_less_key = remaining_key_dependencies.clone();
+            deps_less_key.remove(&key);
+            let d = self.step_count_between(current_key, key)? + self.find_min_steps(key, deps_less_key, &mut key_path_cache)?;
+            if d < best_path {
+                best_path = d;
+            }
+        }
+        key_path_cache.insert(cache_key, best_path); 
+        Ok(best_path)
+    }
     fn find_all_items(&mut self, present_distance: usize, present_loc: Location) -> Option<Vec<SearchPath>> {
         let mut key_found_here = false;
         let mut door_found_here = false;
@@ -291,46 +300,12 @@ impl WorldMap {
             }    
         }
     }
-    fn generate_walk_paths(&mut self, path_so_far: String, deps: &BTreeMap<char, HashSet<char>>) -> Vec<String> {
-        // filter for keys NOT YET picked up...
-        let next_keys = deps.iter().filter(|(key,req_keys)|{
-            if path_so_far.contains(**key) {
-                false
-            // ...but whose DEPENDANCIES have ALL BEEN picked up
-            } else {
-                let mut all_deps_satisfied = true;
-                for k in req_keys.iter() {
-                    if !path_so_far.contains(*k) {
-                        all_deps_satisfied = false;
-                        break;
-                    }
-                }
-                all_deps_satisfied
-            }
-        }).map(|(k,_)| {*k}).collect::<Vec<char>>();
-        // End recursion and return path_so_far, because we've picked up every key (or something went badly wrong!)
-        if next_keys.len() == 0 {
-            // println!("End {} {}",deps.len(), path_so_far);
-            return vec![path_so_far]; // End recursion, we're done
-        }
-        // Now, for each of the "accessible" keys, add to path_so_far and recurse until all keys are added to path
-        let mut collect_results = Vec::new();
-        for key in next_keys {
-            collect_results.append(&mut self.generate_walk_paths(format!("{}{}",key,path_so_far), deps));
-            if path_so_far.len() > 25 {
-                println!("This path {:?} takes {} steps.", path_so_far, self.total_step_count(&path_so_far).unwrap());
-            }
-        }
-        collect_results
-    }
-    fn total_step_count(&mut self, path: &str) -> Result<usize,Error> {
-        let total_steps = path.chars().zip(path.chars().skip(1))
-        .fold(0, |acc, (a,b)| {acc + self.step_count(a,b).unwrap()});
-        Ok(total_steps)
-    }
-    fn step_count(&mut self, key_a: char, key_b: char) -> Result<usize,Error> {
+    fn step_count_between(&mut self, key_a: char, key_b: char) -> Result<usize,Error> {
         match self.key_pair_cache.get(&(key_a,key_b)) {
-            Some(dist) => Ok(*dist), // FAST results
+            Some(dist) => {
+                if *dist > INFINITY - 1 {panic!(format!("Infinite result IN CACHE! @ {:?}", (key_a,key_b)))}
+                Ok(*dist) // FAST results
+            }, 
             None => { // SLOW results
                 println!("Pair: {:?}", (key_a,key_b));
                 let loc_a = *self.key_index.get(&key_a).unwrap();
@@ -349,7 +324,10 @@ impl WorldMap {
                     }
                 }
                 Ok(match self.key_pair_cache.get(&(key_a,key_b)) {
-                    Some(steps) => *steps,
+                    Some(steps) => {
+                        if *steps > INFINITY - 1 {panic!(format!("Infinite result from Dijkstra! @ {:?}", (key_a,key_b)))}
+                        *steps
+                    },
                     None => panic!(format!("Didn't find pair: {:?}", (key_a,key_b))),
                 })
             }
@@ -468,6 +446,6 @@ fn test_ex5() -> Result<(),Error> {
 }
 #[test]
 fn test_input() -> Result<(),Error> {
-    assert_eq!(initiate_search("input.txt")?, 0);
+    assert_eq!(initiate_search("input.txt")?, 4900);
     Ok(())
 }
