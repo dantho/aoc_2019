@@ -3,6 +3,7 @@ const ESC_CLS: &'static str = "\x1B[2J";
 // const ESC_CURSOR_ON: &'static str = "\x1B[?25h";
 const ESC_CURSOR_OFF: &'static str = "\x1B[?25l";
 const DBG: bool = false;
+const INFINITY: usize = std::usize::MAX/1_000_000_000_000*1_000_000_000_000-1;  // Very nearly max with lots of 999's at end to be visible as a "special" number
 
 use std::fs::File;
 use std::io::prelude::*;
@@ -17,7 +18,7 @@ use Error::*;
 type Location = (usize,usize);
 
 fn main() -> Result<(),Error> {
-    let filename = "ex3.txt";
+    let filename = "input.txt";
     let part1 = initiate_search(filename)?;
     println!("Min Step Count to clear keys is {}", part1);
     Ok(())
@@ -70,23 +71,9 @@ fn initiate_search(filename: &'static str) -> Result<usize,Error> {
         .map(|path| {
             (room_map.total_step_count(&path).unwrap(), path)
         }).collect::<Vec<_>>();
-    // let stepcount_paths = stepcount_paths.into_iter().map(|(cnt_sans_entrance, mut path)| {
-    //     room_map.clear_distances();
-    //     room_map.map_distance(room_map.find_entrance().unwrap(), 0).unwrap();
-    //     let first_key = path.pop().unwrap();
-    //     path.push(first_key);
-    //     let first_key_loc = room_map.key_index.get(&first_key).unwrap();
-    //     let entrance_dist = match room_map.data.get(&first_key_loc) {
-    //         Some(Key(_,dist)) => dist,
-    //         _ => panic!("This hack is getting tiring"),
-    //     };
-    //     println!("In path {:?} entrance dist: {}, remainder: {}", path, entrance_dist, cnt_sans_entrance );
-    //     (entrance_dist+cnt_sans_entrance, path)
-    // });
-    let min_step_count = steps_on_path_tuples.iter().fold(std::usize::MAX,|min_so_far, (cnt,_)| {
+    let min_step_count = steps_on_path_tuples.iter().fold(INFINITY,|min_so_far, (cnt,_)| {
         if *cnt < min_so_far {*cnt} else {min_so_far}
     });
-
 
     Ok(min_step_count)
 }
@@ -137,32 +124,9 @@ fn build_dependancy_tree_and_find_paths(mut my_own_map: WorldMap) -> Result<Vec<
     for k in &key_dependencies {
         println!("{:?}", k);
     }
-    let walk_paths = generate_walk_paths("".to_string(), &key_dependencies); 
+    let walk_paths = my_own_map.generate_walk_paths("".to_string(), &key_dependencies);
+    println!("Walk Path count is {}", walk_paths.len());
     Ok(walk_paths)
-}
-fn generate_walk_paths(path_so_far: String, deps: &BTreeMap<char, HashSet<char>>) -> Vec<String> {
-    let next_keys = deps.iter().filter(|(key,req_keys)|{
-        if path_so_far.contains(**key) {
-            false
-        } else {
-            let mut all_deps_satisfied = true;
-            for k in req_keys.iter() {
-                if !path_so_far.contains(*k) {
-                    all_deps_satisfied = false;
-                    break;
-                }
-            }
-            all_deps_satisfied
-        }
-    }).map(|(k,_)| {*k}).collect::<Vec<char>>();
-    if next_keys.len() == 0 {
-        return vec![path_so_far]; // End recursion
-    }
-    let mut collect_results = Vec::new();
-    for key in next_keys {
-        collect_results.append(&mut generate_walk_paths(format!("{}{}",key,path_so_far), deps));
-    }
-    collect_results
 }
 fn is_entrance(ch: char) -> bool {
     ch == '@'
@@ -201,11 +165,11 @@ impl TryFrom<char> for MapData {
     fn try_from(ch: char) -> Result<Self, Self::Error> {
         use MapData::*;
         let status = match ch {
-            en if en == Entrance(0).to_char() => Entrance(std::usize::MAX),
-            mt if mt == Empty(0).to_char() => Empty(std::usize::MAX),
+            en if en == Entrance(0).to_char() => Entrance(INFINITY),
+            mt if mt == Empty(0).to_char() => Empty(INFINITY),
             w if w == Wall.to_char() => Wall,
-            d if d.is_alphabetic() && d.is_uppercase() => Door(d,std::usize::MAX),
-            k if k.is_alphabetic() && k.is_lowercase() => Key(k,std::usize::MAX),
+            d if d.is_alphabetic() && d.is_uppercase() => Door(d,INFINITY),
+            k if k.is_alphabetic() && k.is_lowercase() => Key(k,INFINITY),
             _ => return Err(Error::IllegalMapData { ch }),
         };
         Ok(status)
@@ -327,6 +291,38 @@ impl WorldMap {
             }    
         }
     }
+    fn generate_walk_paths(&mut self, path_so_far: String, deps: &BTreeMap<char, HashSet<char>>) -> Vec<String> {
+        // filter for keys NOT YET picked up...
+        let next_keys = deps.iter().filter(|(key,req_keys)|{
+            if path_so_far.contains(**key) {
+                false
+            // ...but whose DEPENDANCIES have ALL BEEN picked up
+            } else {
+                let mut all_deps_satisfied = true;
+                for k in req_keys.iter() {
+                    if !path_so_far.contains(*k) {
+                        all_deps_satisfied = false;
+                        break;
+                    }
+                }
+                all_deps_satisfied
+            }
+        }).map(|(k,_)| {*k}).collect::<Vec<char>>();
+        // End recursion and return path_so_far, because we've picked up every key (or something went badly wrong!)
+        if next_keys.len() == 0 {
+            // println!("End {} {}",deps.len(), path_so_far);
+            return vec![path_so_far]; // End recursion, we're done
+        }
+        // Now, for each of the "accessible" keys, add to path_so_far and recurse until all keys are added to path
+        let mut collect_results = Vec::new();
+        for key in next_keys {
+            collect_results.append(&mut self.generate_walk_paths(format!("{}{}",key,path_so_far), deps));
+            if path_so_far.len() > 25 {
+                println!("This path {:?} takes {} steps.", path_so_far, self.total_step_count(&path_so_far).unwrap());
+            }
+        }
+        collect_results
+    }
     fn total_step_count(&mut self, path: &str) -> Result<usize,Error> {
         let total_steps = path.chars().zip(path.chars().skip(1))
         .fold(0, |acc, (a,b)| {acc + self.step_count(a,b).unwrap()});
@@ -336,6 +332,7 @@ impl WorldMap {
         match self.key_pair_cache.get(&(key_a,key_b)) {
             Some(dist) => Ok(*dist), // FAST results
             None => { // SLOW results
+                println!("Pair: {:?}", (key_a,key_b));
                 let loc_a = *self.key_index.get(&key_a).unwrap();
                 self.clear_distances();
                 self.map_distance(loc_a,0)?;
@@ -361,10 +358,10 @@ impl WorldMap {
     fn clear_distances(&mut self) {
         for (_,item) in &mut self.data {
             match item {
-                Entrance(dist) => *dist = std::usize::MAX,
-                Empty(dist)    => *dist = std::usize::MAX,
-                Key(_,dist)    => *dist = std::usize::MAX,
-                Door(_,dist)   => *dist = std::usize::MAX,
+                Entrance(dist) => *dist = INFINITY,
+                Empty(dist)    => *dist = INFINITY,
+                Key(_,dist)    => *dist = INFINITY,
+                Door(_,dist)   => *dist = INFINITY,
                 Wall           => (),
             }
         }
