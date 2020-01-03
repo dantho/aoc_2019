@@ -11,6 +11,9 @@ use std::io::{BufReader, Write, stdout};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Debug;
 use std::collections::{BTreeMap,HashSet};
+use std::sync::mpsc::{Sender,Receiver};
+use std::sync::mpsc;
+use std::thread;
 use futures::executor::block_on;
 use ExplorerMovement::*;
 use MapData::*;
@@ -98,6 +101,7 @@ async fn initiate_search(filename: &'static str) -> Result<usize,Error> {
         println!("{:?}", k);
     }
     let remaining_key_dependencies = key_dependencies;
+    
     // let min_step_count = room_map.find_min_steps('@', remaining_key_dependencies, &mut BTreeMap::new())?;
     // Ok(min_step_count)
     Ok(0)
