@@ -11,6 +11,7 @@ use std::io::{BufReader, Write, stdout};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Debug;
 use std::collections::{BTreeMap,HashSet};
+use futures::executor::block_on;
 use ExplorerMovement::*;
 use MapData::*;
 use Error::*;
@@ -18,10 +19,14 @@ use Error::*;
 type Location = (usize,usize);
 
 fn main() -> Result<(),Error> {
-    let filename = "ex1.txt";
-    let part1 = initiate_search(filename)?;
+    let filename = "ex9_part2.txt";
+    let part1 = block_on(async_main(filename))?;
     println!("Min Step Count to clear keys is {}", part1);
     Ok(())
+}
+
+async fn async_main(filename: &'static str) -> Result<usize,Error> {
+    Ok(initiate_search(filename).await?)
 }
 
 #[derive(Debug)]
@@ -45,53 +50,46 @@ impl SearchPath {
         SearchPath {items}
     }
 }
-fn initiate_search(filename: &'static str) -> Result<usize,Error> {
+async fn initiate_search(filename: &'static str) -> Result<usize,Error> {
     let mut room_map = WorldMap::new(filename)?;
     room_map.redraw_screen()?;
-    room_map.clear_distances();
-    let keynames: String = room_map.data.iter().filter_map(|(_,item)|{match item
-    {
-        Key(k,_) => Some(k),
-        _ => None
-    }}).collect();
-    let doornames: String = room_map.data.iter().filter_map(|(_,item)|{
-        match item {
-            Door(d,_) => Some(d),
-            _ => None
-        }}).collect();
-    println!("Keys: {}", keynames);
-    println!("Doors: {}", doornames);
-    let alleys = match room_map.find_all_items(0, room_map.find_entrance()?) {
-        None => panic!("Empty room??"),
-        Some(vec_of_vecs) => vec_of_vecs,
-    };
-    println!("Alleys:");
-    for alley in &alleys {
-        println!("{:?}", alley);
+    let mut quadrant_alleys = Vec::new();
+    for quadrant_entrance in room_map.find_entrances()? {
+        let alleys = match room_map.find_all_items(0, quadrant_entrance) {
+            None => panic!("Empty quadrant??"),
+            Some(vec_of_vecs) => vec_of_vecs,
+        };
+        println!("Alleys from entrance at {:?}:", quadrant_entrance);
+        for alley in &alleys {
+            println!("{:?}", alley);
+        }
+        let alleys_as_string: HashSet<String> = alleys.iter().map(|alley|{
+            alley.to_string()
+        }).collect();
+        println!("Alleys (as string) with doors:");
+        for alley in &alleys_as_string {
+            println!("{}", alley);
+        }
+        quadrant_alleys.push((quadrant_entrance, alleys_as_string));
     }
-    let orig_alleys_with_doors: HashSet<String> = alleys.iter().map(|alley|{
-        alley.to_string()
-    }).collect();
-    println!("Alleys (as string) with doors:");
-    for alley in &orig_alleys_with_doors {
-        println!("{}", alley);
-    }
-    // build dependency tree (bush?)
+    // build single-shared dependency tree (bush?)
     let mut key_dependencies: BTreeMap<char,Vec<char>> = BTreeMap::new();
-    for alley_str in &orig_alleys_with_doors {
-        let mut door_keys:Vec<char> = Vec::new();
-        for dk in alley_str.chars().rev() {
-            match MapData::try_from(dk)? {
-                Entrance(_) => {door_keys.push('@');}, // entrance is (FIRST DOOR and) FIRST KEY
-                Door(door,_) => {door_keys.push(to_key(door));}, // doors are abstractions: they create key dependancies
-                Key(key,_) => {
-                    // the following match loop assumes that alleys can have duplicate sections, so keys can be found multiple times, redundantly.
-                    match key_dependencies.get_mut(&key) {
-                        Some(deps) => for d in &door_keys {deps.push(*d);}, // this key was found previously, processing a sibling alley, append door_keys as deps in case one is new, though this is likely all redundant
-                        None => {key_dependencies.insert(key, door_keys.clone());}, // this key is completely new, clone door_keys as dependants.
-                    }
-                },
-                _ => panic!("Should be a key, door, or entrance.  No?"),
+    for (_, quadrant) in &quadrant_alleys {
+        for alley_str in quadrant {
+            let mut door_keys:Vec<char> = Vec::new();
+            for dk in alley_str.chars().rev() {
+                match MapData::try_from(dk)? {
+                    Entrance(_) => {door_keys.push('@');}, // entrance is (FIRST DOOR and) FIRST KEY
+                    Door(door,_) => {door_keys.push(to_key(door));}, // doors are abstractions: they create key dependancies
+                    Key(key,_) => {
+                        // the following match loop assumes that alleys can have duplicate sections, so keys can be found multiple times, redundantly.
+                        match key_dependencies.get_mut(&key) {
+                            Some(deps) => for d in &door_keys {deps.push(*d);}, // this key was found previously, processing a sibling alley, append door_keys as deps in case one is new, though this is likely all redundant
+                            None => {key_dependencies.insert(key, door_keys.clone());}, // this key is completely new, clone door_keys as dependants.
+                        }
+                    },
+                    _ => panic!("Should be a key, door, or entrance.  No?"),
+                }
             }
         }
     }
@@ -100,8 +98,9 @@ fn initiate_search(filename: &'static str) -> Result<usize,Error> {
         println!("{:?}", k);
     }
     let remaining_key_dependencies = key_dependencies;
-    let min_step_count = room_map.find_min_steps('@', remaining_key_dependencies, &mut BTreeMap::new())?;
-    Ok(min_step_count)
+    // let min_step_count = room_map.find_min_steps('@', remaining_key_dependencies, &mut BTreeMap::new())?;
+    // Ok(min_step_count)
+    Ok(0)
 }
 fn reachable(deps: &BTreeMap<char,Vec<char>>)-> Vec<char> {
     deps.iter().filter_map(|(candidate, sub_deps)| {
@@ -345,17 +344,21 @@ impl WorldMap {
         }
     }
     fn find_entrance(&self) -> Result<Location,Error> {
-        let entrance = self.data.iter().fold(None,|found, (loc,item)| {
+        let entrances = self.find_entrances()?;
+        if entrances.len() == 1 {
+            Ok(entrances[0])
+        } else {
+            Err(MapAssertFail {msg: format!("Expecting 1 entrance, found {}", entrances.len())})
+        }
+    }
+    fn find_entrances(&self) -> Result<Vec<Location>,Error> {
+        let entrances = self.data.iter().filter_map(|(loc,item)| {
             match *item {
-                Entrance(_) => Some(loc),
-                _ => found,
+                Entrance(_) => Some(*loc),
+                _ => None,
             }
-        });
-        let entrance = match entrance {
-            Some(e) => *e,
-            None => return Err(ItemNotFound {msg: format!("{:?}", Entrance(0))}),
-        };
-        Ok(entrance)
+        }).collect();
+        Ok(entrances)
     }
     fn new(filename: &'static str) -> Result<Self,Error> {
         let data = WorldMap::read_initial_map(filename)?;
@@ -419,33 +422,60 @@ fn set_cursor_loc(y:usize,x:usize) {
     stdout().flush().unwrap();
 }
 
+// #[test]
+// fn test_ex1() -> Result<(),Error> {
+//     assert_eq!(block_on(initiate_search("ex1.txt"))?, 8);
+//     Ok(())
+// }
+// #[test]
+// fn test_ex2() -> Result<(),Error> {
+//     assert_eq!(block_on(initiate_search("ex2.txt"))?, 86);
+//     Ok(())
+// }
+// #[test]
+// fn test_ex3() -> Result<(),Error> {
+//     assert_eq!(block_on(initiate_search("ex3.txt"))?, 132);
+//     Ok(())
+// }
+// #[test]
+// fn test_ex4() -> Result<(),Error> {
+//     assert_eq!(block_on(initiate_search("ex4.txt"))?, 136);
+//     Ok(())
+// }
+// #[test]
+// fn test_ex5() -> Result<(),Error> {
+//     assert_eq!(block_on(initiate_search("ex5.txt"))?, 81);
+//     Ok(())
+// }
+// #[test]
+// fn test_input() -> Result<(),Error> {
+//     assert_eq!(block_on(initiate_search("input.txt"))?, 4900);
+//     Ok(())
+// }
+
+
 #[test]
-fn test_ex1() -> Result<(),Error> {
-    assert_eq!(initiate_search("ex1.txt")?, 8);
+fn test_ex6() -> Result<(),Error> {
+    assert_eq!(block_on(initiate_search("ex6.txt"))?, 8);
     Ok(())
 }
-#[test]
-fn test_ex2() -> Result<(),Error> {
-    assert_eq!(initiate_search("ex2.txt")?, 86);
-    Ok(())
-}
-#[test]
-fn test_ex3() -> Result<(),Error> {
-    assert_eq!(initiate_search("ex3.txt")?, 132);
-    Ok(())
-}
-#[test]
-fn test_ex4() -> Result<(),Error> {
-    assert_eq!(initiate_search("ex4.txt")?, 136);
-    Ok(())
-}
-#[test]
-fn test_ex5() -> Result<(),Error> {
-    assert_eq!(initiate_search("ex5.txt")?, 81);
-    Ok(())
-}
-#[test]
-fn test_input() -> Result<(),Error> {
-    assert_eq!(initiate_search("input.txt")?, 4900);
-    Ok(())
-}
+// #[test]
+// fn test_ex7() -> Result<(),Error> {
+//     assert_eq!(block_on(initiate_search("ex7.txt"))?, 24);
+//     Ok(())
+// }
+// #[test]
+// fn test_ex8() -> Result<(),Error> {
+//     assert_eq!(block_on(initiate_search("ex8.txt"))?, 32);
+//     Ok(())
+// }
+// #[test]
+// fn test_ex9() -> Result<(),Error> {
+//     assert_eq!(block_on(initiate_search("ex9.txt"))?, 72);
+//     Ok(())
+// }
+// #[test]
+// fn test_input_part2() -> Result<(),Error> {
+//     assert_eq!(block_on(initiate_search("input_part2.txt"))?, 9999);
+//     Ok(())
+// }
