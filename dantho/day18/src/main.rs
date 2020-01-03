@@ -75,9 +75,15 @@ async fn initiate_search(filename: &'static str) -> Result<usize,Error> {
         }
         quadrant_alleys.push((quadrant_entrance, alleys_as_string));
     }
-    // build single-shared dependency tree (bush?)
-    let mut key_dependencies: BTreeMap<char,Vec<char>> = BTreeMap::new();
-    for (_, quadrant) in &quadrant_alleys {
+    let mut total_steps = 0;
+    // build per-quadrant dependency tree (bush?)
+    // remember to patch quadrant-specific entrance location (removing others)
+    // and clear previous quadrant data from key_cache (might be harmless, but why not)
+    for (entrance_loc, quadrant) in &quadrant_alleys {
+        room_map.key_index.remove(&'@');
+        room_map.key_index.insert('@', *entrance_loc);
+        room_map.key_pair_cache.clear();
+        let mut key_dependencies: BTreeMap<char,Vec<char>> = BTreeMap::new();
         for alley_str in quadrant {
             let mut door_keys:Vec<char> = Vec::new();
             for dk in alley_str.chars().rev() {
@@ -95,16 +101,20 @@ async fn initiate_search(filename: &'static str) -> Result<usize,Error> {
                 }
             }
         }
+        // We're processed one quadrant.  Now let's ELIMINATE all dependancies on keys in other quadrants -- since we can ignore those dependancies
+        // (its just a matter of [wait] time.)
+        let keys_in_this_quadrant: HashSet<char> = key_dependencies.keys().cloned().collect();
+        for (_, dep_keys) in &mut key_dependencies {
+            *dep_keys = dep_keys.iter().filter(|k| {keys_in_this_quadrant.contains(k)}).cloned().collect();
+        }
+        println!("Quandrant-Dependency Tree:");
+        for k in &key_dependencies {
+            println!("{:?}", k);
+        }
+        let this_quadrants_min_step_count = room_map.find_min_steps('@', key_dependencies, &mut BTreeMap::new())?;
+        total_steps += this_quadrants_min_step_count;
     }
-    println!("Dependency Tree:");
-    for k in &key_dependencies {
-        println!("{:?}", k);
-    }
-    let remaining_key_dependencies = key_dependencies;
-    
-    // let min_step_count = room_map.find_min_steps('@', remaining_key_dependencies, &mut BTreeMap::new())?;
-    // Ok(min_step_count)
-    Ok(0)
+    Ok(total_steps)
 }
 fn reachable(deps: &BTreeMap<char,Vec<char>>)-> Vec<char> {
     deps.iter().filter_map(|(candidate, sub_deps)| {
@@ -310,13 +320,11 @@ impl WorldMap {
                 Ok(*dist) // FAST results
             }, 
             None => { // SLOW results
-                println!("Pair: {:?}", (key_a,key_b));
                 let loc_a = *self.key_index.get(&key_a).unwrap();
                 self.clear_distances();
                 self.map_distance(loc_a,0)?;
                 for (key_other, loc_other) in &self.key_index {
                     if *key_other!=key_a {
-                        println!("pair: {:?}", (key_a, key_other));
                         let distance_between = match self.data.get(loc_other) {
                             Some(Key(_,dist)) => *dist,
                             Some(Entrance(dist)) => *dist,
@@ -460,26 +468,26 @@ fn set_cursor_loc(y:usize,x:usize) {
 
 #[test]
 fn test_ex6() -> Result<(),Error> {
-    assert_eq!(block_on(initiate_search("ex6.txt"))?, 8);
+    assert_eq!(block_on(initiate_search("ex6_part2.txt"))?, 8);
     Ok(())
 }
-// #[test]
-// fn test_ex7() -> Result<(),Error> {
-//     assert_eq!(block_on(initiate_search("ex7.txt"))?, 24);
-//     Ok(())
-// }
-// #[test]
-// fn test_ex8() -> Result<(),Error> {
-//     assert_eq!(block_on(initiate_search("ex8.txt"))?, 32);
-//     Ok(())
-// }
-// #[test]
-// fn test_ex9() -> Result<(),Error> {
-//     assert_eq!(block_on(initiate_search("ex9.txt"))?, 72);
-//     Ok(())
-// }
-// #[test]
-// fn test_input_part2() -> Result<(),Error> {
-//     assert_eq!(block_on(initiate_search("input_part2.txt"))?, 9999);
-//     Ok(())
-// }
+#[test]
+fn test_ex7() -> Result<(),Error> {
+    assert_eq!(block_on(initiate_search("ex7_part2.txt"))?, 24);
+    Ok(())
+}
+#[test]
+fn test_ex8() -> Result<(),Error> {
+    assert_eq!(block_on(initiate_search("ex8_part2.txt"))?, 32);
+    Ok(())
+}
+#[test]
+fn test_ex9() -> Result<(),Error> {
+    assert_eq!(block_on(initiate_search("ex9_part2.txt"))?, 72);
+    Ok(())
+}
+#[test]
+fn test_input_part2() -> Result<(),Error> {
+    assert_eq!(block_on(initiate_search("input_part2.txt"))?, 2462);
+    Ok(())
+}
