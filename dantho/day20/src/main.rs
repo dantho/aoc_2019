@@ -3,6 +3,9 @@ const ESC_CLS: &'static str = "\x1B[2J";
 // const ESC_CURSOR_ON: &'static str = "\x1B[?25h";
 const ESC_CURSOR_OFF: &'static str = "\x1B[?25l";
 const DBG: bool = false;
+const INFINITY: usize = std::usize::MAX/1_000_000_000_000_000_000 * 1_000_000_000_000_000_000 + 123_456; // BIG number! But also recognizable as "special"
+const MAX_DISTANCE: usize = 20000;
+const DEEPEST_LEVEL: usize = 60;
 
 use std::fs::File;
 use std::io::prelude::*;
@@ -18,13 +21,12 @@ use std::thread;
 const STACK_SIZE: usize = 4 * 1024 * 1024;
 
 fn run() -> Result<(),Error> {
-    let filename = "ex2.txt";
-    let part1 = process_part1(filename)?;
-    let part2 = 0;
-    println!("Part 1: Fewest steps from AA to ZZ is {}", part1 );
-    println!("Part 2: TBD is {}", part2 );
+    let filename = "ex3_part2.txt";
+    let part2 = process_part2(filename)?;
+    // println!("Part 1: Fewest steps from AA to ZZ is {}", if part1 == INFINITY {"INFINITY".to_string()} else {part1.to_string()});
+    println!("Part 2: Fewest steps from AA to ZZ in recursive Donut Space is {}", if part2 == INFINITY {"INFINITY".to_string()} else {part2.to_string()});
     Ok(())
-} 
+}
 
 fn main() {
     // Spawn thread with explicit stack size
@@ -40,7 +42,7 @@ fn main() {
 type Location = (usize,usize);
 
 // How many steps does it take to get from the open tile marked AA to the open tile marked ZZ?
-fn process_part1(filename: &'static str) -> Result<usize,Error> {
+fn process_part2(filename: &'static str) -> Result<usize,Error> {
     let mut donut_map = DonutMap::new(filename)?;
     donut_map.redraw_screen()?;
     for p in &donut_map.portals {
@@ -58,8 +60,8 @@ fn process_part1(filename: &'static str) -> Result<usize,Error> {
     }
     let aa_portal = donut_map.find_portals_by_name("AA").pop().unwrap();
     let starting_loc = aa_portal.location;
-    let part1 = donut_map.shortest_path_to_end(starting_loc, 0)?;
-    Ok(part1)
+    let part2 = donut_map.shortest_path_to_end(starting_loc, 0)?;
+    Ok(part2)
 }
 #[derive(Debug)]
 enum Error {
@@ -85,29 +87,29 @@ struct DonutMap {
 impl DonutMap {
     fn go_up_one_level(&mut self) -> usize {
         if self.stack_depth == 0 {panic!("We're raising the roof here!")}
-        println!("         ...up");
-        println!("   ...up... ");
-        println!("Up... ");
+        if DBG {println!("         ...up");}
+        if DBG {println!("   ...up... ");}
+        if DBG {println!("Up... ");}
         self.stack_depth -= 1;
         self.stack_depth
     }
     fn go_down_one_level(&mut self) -> usize {
-        println!("Down, ...");
+        if DBG {println!("Down...");}
         if self.stack_depth == self.maps.len()-1 {
+            if DBG {println!("     ...down...");}
             // We need to create a new (lower) level!
             let mut new_level = self.map_data().clone();
             // clear distances on new layer
-            println!("   ...down, ...");
             for (_,item) in &mut new_level {
                 match item {
-                    Empty(d) => *d = std::usize::MAX,
+                    Empty(d) => *d = INFINITY,
                     _ => (),
                 }
             };
             self.maps.push(new_level);
-            self.stack_depth += 1;
         }
-        println!("            ...down");
+        if DBG {println!("             ...down");}
+        self.stack_depth += 1;
         self.stack_depth
     }
     fn map_data(&self) -> &BTreeMap<Location,MapData> {
@@ -127,58 +129,102 @@ impl DonutMap {
             if p.name == name {Some(p)} else {None}
         }).collect()
     }
-    fn shortest_path_to_end(&mut self, where_are_you: Location, distance_to_here: usize) -> Result<usize,Error> {
-        // End recursion with any bad path or FINAL GOAL achieved.
-        let debug_maybe_portal = match self.find_portal_by_loc(&where_are_you) {
+    fn shortest_path_to_end(&mut self, you_are_here: Location, distance_to_here: usize) -> Result<usize,Error> {
+        if DBG {println!("In shortest_path_to_end(), on level {}, map contains {} INFINITIES", self.stack_depth,
+            self.map_data().iter().fold(0,|count_of_infinities, (_loc,item)| {
+                count_of_infinities + match *item {
+                    Empty(dist) if dist == INFINITY => 1,
+                    _ => 0,
+                }
+            })
+        );}
+        if distance_to_here > MAX_DISTANCE {
+            println!("    >> ABORT -- Too far! This can't be right?", );
+            return Ok(INFINITY)
+        } // ABORT
+        if self.stack_depth > DEEPEST_LEVEL {
+            println!("    >> ABORT -- Too deep! This can't be right?", );
+            return Ok(INFINITY)
+        } // ABORT
+        // End recursion with any path (of many!) or FINAL GOAL achieved.
+        let debug_maybe_portal = match self.find_portal_by_loc(&you_are_here) {
             Some(p) => Some(p.clone()),
             _ => None,
         };
-        let whats_underfoot = self.map_data_mut().get_mut(&where_are_you);
-        match whats_underfoot {
-            None => Err(MapAssertFail {msg: format!("We somehow walked off the map to {:?}", where_are_you)}),
-            Some(Wall) => Ok(std::usize::MAX), // This direction is NOT the shortest path
-            Some(Empty(distance)) if *distance <= distance_to_here => Ok(std::usize::MAX), // Crossed paths. Been here done that.
+        // match whats_underfoot
+        match self.map_data_mut().get_mut(&you_are_here) {
+            None => Err(MapAssertFail {msg: format!("We somehow walked off the map to {:?}", you_are_here)}),
+            Some(Wall) => Ok(INFINITY), // Hit a Wall
+            Some(Empty(distance)) if *distance <= distance_to_here => Ok(INFINITY), // Crossed paths. Been here done that.
             Some(Empty(distance)) => {
                 *distance = distance_to_here; // Mark your trail -- prevent back-tracking
                 // recurse into cardinal directions
                 let saved_depth = self.stack_depth;
-                let n = self.shortest_path_to_end(North.move_from(&where_are_you), distance_to_here+1)?;
-                self.stack_depth = saved_depth;
-                let s = self.shortest_path_to_end(South.move_from(&where_are_you), distance_to_here+1)?;
-                self.stack_depth = saved_depth;
-                let e = self.shortest_path_to_end( East.move_from(&where_are_you), distance_to_here+1)?;
-                self.stack_depth = saved_depth;
-                let w = self.shortest_path_to_end( West.move_from(&where_are_you), distance_to_here+1)?;
-                self.stack_depth = saved_depth;
+                let n = self.shortest_path_to_end(North.move_from(&you_are_here), distance_to_here+1)?;
+                if self.stack_depth != saved_depth {
+                    if true {println!("{} at level {}, changing back to level {}",
+                        if n == INFINITY {"Dead end"} else {"Found ZZ"}, self.stack_depth, saved_depth);}
+                    self.stack_depth = saved_depth;
+                }
+                let s = self.shortest_path_to_end(South.move_from(&you_are_here), distance_to_here+1)?;
+                if self.stack_depth != saved_depth {
+                    if true {println!("{} at level {}, changing back to level {}",
+                        if s == INFINITY {"Dead end"} else {"Found ZZ"}, self.stack_depth, saved_depth);}
+                    self.stack_depth = saved_depth;
+                }
+                let e = self.shortest_path_to_end( East.move_from(&you_are_here), distance_to_here+1)?;
+                if self.stack_depth != saved_depth {
+                    if true {println!("{} at level {}, changing back to level {}",
+                        if e == INFINITY {"Dead end"} else {"Found ZZ"}, self.stack_depth, saved_depth);}
+                    self.stack_depth = saved_depth;
+                }
+                let w = self.shortest_path_to_end( West.move_from(&you_are_here), distance_to_here+1)?;
+                if self.stack_depth != saved_depth {
+                    if true {println!("{} at level {}, changing back to level {}",
+                        if w == INFINITY {"Dead end"} else {"Found ZZ"}, self.stack_depth, saved_depth);}
+                    self.stack_depth = saved_depth;
+                }
                 Ok(*[n,s,e,w].iter().min().unwrap())
             },
             Some(PortalChar(_,distance)) => {
-                if *distance <= distance_to_here {return Ok(std::usize::MAX);} // Crossed paths. Been here done that.
-                println!("Portal {} found at {:?}, distance is {} (was {})", debug_maybe_portal.unwrap().name, where_are_you, distance_to_here, distance);
-                *distance = distance_to_here; // Mark your trail -- prevent back-tracking
+                if *distance <= distance_to_here {return Ok(INFINITY);} // Crossed paths. Been here done that.
+                // SHOULD WE DO THIS?.. PORTALS must be REENTRANT in the other direction
+                // Saying "no" might be too aggressive. We certainly MUST make the other direction allowable once, at least.
+                *distance = distance_to_here; // Mark your trail
+                // Prevent reentering the same portal IN THE SAME DIRECTION more than once
                 // Determine if this Portal is THE END!  If so, return distance_to_here!!
                 // If not, PASS THROUGH the portal
-                let destination_location = match self.transport.get(&where_are_you) {
+                // COMPLICATED LOGIC FOLLOWS -- We don't want to block this Portal in the reverse direction,
+                // but we also DON'T want the Dijkstra algo immediately reversing back into the portal.
+                // SO... we check if THIS portal is one we just popped through from the other side just one step ago
+                // And if so, reject the transport.  No warp for you!  No immediate round-trip warp, that is.
+                // 
+                // 
+                // todo
+                let destination_location = match self.transport.get(&you_are_here) {
                     Some(maybe_destination) => *maybe_destination,
                     None => return Err(MapAssertFail {msg: "Portal not located???".to_string()}),
                 };
-                println!("Next stop should be {:?}", destination_location);
                 match destination_location {
                     None => {
-                        if distance_to_here == 0 {
+                        if 0 == distance_to_here {
                             // Portal AA -- We're just starting out
-                            let starting_loc = self.find_portal_by_loc(&where_are_you).unwrap().ejection_direction.move_from(&where_are_you);
+                            let starting_loc = self.find_portal_by_loc(&you_are_here).unwrap().ejection_direction.move_from(&you_are_here);
                             assert_eq!(self.stack_depth, 0);
                             self.shortest_path_to_end(starting_loc, 0)
                         } else {
-                            // Portal ZZ -- DESTINATION REACHED.  Return distance_to_here to end recursion finally.
+                            if true {println!("Reached Portal {} on level {}, distance so far is {}",
+                                debug_maybe_portal.clone().unwrap().name,
+                                self.stack_depth,
+                                if distance_to_here == INFINITY {"INFINITY".to_string()} else {distance_to_here.to_string()});}
                             if 0 == self.stack_depth {
-                                println!("and this branch is DONE!");
-                                Ok(distance_to_here - 1) // We're done!
+                                // Portal ZZ -- DESTINATION REACHED.  Return distance_to_here to end recursion finally.
+                                if true {println!("    >> DONE -- This branch finished successfully! <<    Total distance: {}", distance_to_here - 1);}
+                                Ok(distance_to_here - 1) // We're done! (subtracting one because we are NOT stepping into the final portal)
                             } else {
-                                // inner portals
-                                println!("but this is effectively a wall right now");
-                                Ok(std::usize::MAX) // [Effectively] Hit a wall! AA and ZZ act like walls on all but outer layer
+                                // inner portals AA or ZZ
+                                if true {println!("    >> TERMINATED -- Portal {} is a wall at level {}.", debug_maybe_portal.unwrap().name, self.stack_depth);}
+                                Ok(INFINITY) // [Effectively] Hit a wall! AA and ZZ act like walls on all but outer layer
                             }
                         }
                     },
@@ -186,16 +232,23 @@ impl DonutMap {
                         let (destination_is_outer,ejection_direction) = match self.find_portal_by_loc(&other_side).unwrap() {
                             p => (p.is_outer, p.ejection_direction)
                         };
-                        println!("which is the {}-side of the portal heading {:?}", if destination_is_outer {"outer"} else {"inner"}, ejection_direction);
                         // Outer portals act like walls on top layer
                         if 0 == self.stack_depth && !destination_is_outer {
-                            println!("Hit an effective wall, bailing out.");
-                            return Ok(std::usize::MAX);
+                            if DBG {println!("    >> TERMINATED -- Can't recurse higher than level {}.", self.stack_depth);}
+                            return Ok(INFINITY);
                         }
-                        let _output_depth = if destination_is_outer {self.go_down_one_level()} else {self.go_up_one_level()};
-                        println!("----------------------");
+                        let output_depth = if destination_is_outer {self.go_down_one_level()} else {self.go_up_one_level()};
+                        if DBG {println!("----------- to LEVEL {} -------------", output_depth);}
                         let output_dest = ejection_direction.move_from(&other_side);
-                        self.shortest_path_to_end(output_dest, distance_to_here+0)
+                        if true {println!("Using Portal {} to warp {} to level {} at {:?} heading {:?}, distance so far is {}",
+                            debug_maybe_portal.unwrap().name,
+                            if destination_is_outer {"down .."} else {" up  ^^"},
+                            output_depth,
+                            destination_location.unwrap(),
+                            ejection_direction,
+                            if distance_to_here == INFINITY {"INFINITY".to_string()} else {distance_to_here.to_string()});}
+                        let shortest = self.shortest_path_to_end(output_dest, distance_to_here+0);
+                        shortest
                     },
                 }
             },
@@ -581,9 +634,9 @@ impl TryFrom<char> for MapData {
     fn try_from(ch: char) -> Result<Self, Self::Error> {
         use MapData::*;
         let status = match ch {
-            mt if mt == Empty(0).to_char() => Empty(std::usize::MAX),
+            mt if mt == Empty(0).to_char() => Empty(INFINITY),
             w if w == Wall.to_char() => Wall,
-            p if p.is_alphabetic() && p.is_uppercase() => PortalChar(p,std::usize::MAX),
+            p if p.is_alphabetic() && p.is_uppercase() => PortalChar(p,INFINITY),
             _ => return Err(Error::IllegalMapData { ch }),
         };
         Ok(status)
