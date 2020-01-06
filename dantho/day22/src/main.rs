@@ -2,14 +2,40 @@
 const DECK_SIZE:usize = 10_007;
 fn main() -> Result<(),Error> {
     let deck: Vec<usize> = (0..DECK_SIZE).collect();
-    if DECK_SIZE > 25 {
-        let i = DECK_SIZE-1;
-        let deck2 = increment_m(&deck, i);
-        // println!("Deck increment_{} starts with {:?}", i, deck2.iter().take(20).collect::<Vec<_>>());
+    // increment_m
+    if DECK_SIZE > 20 {
+        for i in (1..10).chain((DECK_SIZE-10)..DECK_SIZE) {
+            let deck2 = increment_m(&deck, i);
+            println!("Deck increment_({}) starts with {:?}", i, deck2.iter().take(20).collect::<Vec<_>>());
+        }
     } else {
         for i in 1..DECK_SIZE {
             let deck2 = increment_m(&deck, i);
-            // println!("Deck {} is {:?}", i, deck2 );
+            println!("Deck increment_({}) is {:?}", i, deck2 );
+        }
+    }
+    // new_stack (aka "reverse")
+    if DECK_SIZE > 20 {
+        for _i in (1..2).chain((DECK_SIZE-0)..DECK_SIZE) {
+            let deck2 = new_stack(&deck);
+            println!("Deck new_stack() starts with {:?}", deck2.iter().take(20).collect::<Vec<_>>());
+        }
+    } else {
+        for _i in 1..2 {
+            let deck2 = new_stack(&deck);
+            println!("Deck new_stack() is {:?}", deck2 );
+        }
+    }
+    // cut_n
+    if DECK_SIZE > 20 {
+        for i in (1..10).chain((DECK_SIZE-10)..DECK_SIZE) {
+            let deck2 = cut_n(&deck, i as isize);
+            println!("Deck cut_n({}) starts with {:?}", i, deck2.iter().take(20).collect::<Vec<_>>());
+        }
+    } else {
+        for i in 1..DECK_SIZE {
+            let deck2 = cut_n(&deck, i as isize);
+            println!("Deck cut_n({}) is {:?}", i, deck2 );
         }
     }
     Ok(())
@@ -19,12 +45,12 @@ enum Error {
     _NotImplemented,
     // MapAssertFail {msg: String},
 }
-fn new_stack(cards: Vec<usize>) -> Vec<usize> {
-    cards.into_iter().rev().collect::<Vec<usize>>()
+fn new_stack(cards: &Vec<usize>) -> Vec<usize> {
+    cards.into_iter().rev().cloned().collect::<Vec<usize>>()
 }
-fn cut_n(cards: Vec<usize>, n: isize) -> Vec<usize> {
+fn cut_n(cards: &Vec<usize>, n: isize) -> Vec<usize> {
     let n = if n < 0 {DECK_SIZE as isize + n} else {n} as usize;
-    cards.into_iter().cycle().skip(n).take(DECK_SIZE).collect::<Vec<usize>>()
+    cards.into_iter().cycle().skip(n).take(DECK_SIZE).cloned().collect::<Vec<usize>>()
 }
 fn increment_m(cards: &Vec<usize>, m: usize) -> Vec<usize> {
     if m >= DECK_SIZE {panic!(format!("m ({}) is greater than or equal to size ({})",m,DECK_SIZE))}
@@ -43,7 +69,7 @@ fn shuffle(cards: Vec<usize>, input: &str) -> Vec<usize> {
         if line.len() == 0 {continue};
         new_deal =
             if line.contains("deal into new stack") {
-                new_stack(new_deal)
+                new_stack(&new_deal)
             } else if line.contains("deal with increment ") {
                 let pieces: Vec<String> = line.split("deal with increment ").map(|s|{s.to_string()}).collect();
                 if pieces.len() == 2 {
@@ -57,7 +83,7 @@ fn shuffle(cards: Vec<usize>, input: &str) -> Vec<usize> {
                 if pieces.len() == 2 {
                     if pieces[0].len() == 0 {
                         let param = pieces[1].parse().unwrap();
-                        cut_n(new_deal, param)
+                        cut_n(&new_deal, param)
                     } else {panic!("Ack!")}
                 } else {panic!("Ack!")}
             } else {
