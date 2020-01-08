@@ -3,4 +3,14 @@
 [[package]]
 name = "day22"
 version = "0.1.0"
+dependencies = [
+ "modulo 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+]
 
+[[package]]
+name = "modulo"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[metadata]
+"checksum modulo 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)" = "53db447cac1df8402bef9a2ccacb0ea0dd1061b935e9e9ab9e5082c516aaada8"

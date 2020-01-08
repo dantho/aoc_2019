@@ -1,7 +1,11 @@
 /// https://adventofcode.com/2019/day/22
-const DECK_SIZE:usize = 10_007;
+const DECK_SIZE:u128 = 10_007;
+
+use modulo::Mod;
+
+// const DECK_SIZE:u128 = 119_315_717_514_047;
 fn main() -> Result<(),Error> {
-    let deck: Vec<usize> = (0..DECK_SIZE).collect();
+    let deck: Vec<u128> = (0..DECK_SIZE).collect();
     // increment_m
     if DECK_SIZE > 20 {
         for i in (1..10).chain((DECK_SIZE-10)..DECK_SIZE) {
@@ -16,9 +20,13 @@ fn main() -> Result<(),Error> {
     }
     // new_stack (aka "reverse")
     if DECK_SIZE > 20 {
-        for _i in (1..2).chain((DECK_SIZE-10)..DECK_SIZE) {
+        for _i in (1..2) {
             let deck2 = new_stack(&deck);
             println!("Deck new_stack() starts with {:?}", deck2.iter().take(20).collect::<Vec<_>>());
+            let deck2 = cut_n(&deck2, 2);
+            println!("Deck2 cut_n(2) starts with {:?}", deck2.iter().take(20).collect::<Vec<_>>());
+            let deck2 = new_stack(&deck2);
+            println!("Deck2 new_stack() starts with {:?}", deck2.iter().take(20).collect::<Vec<_>>());
         }
     } else {
         for _i in 1..2 {
@@ -45,24 +53,30 @@ enum Error {
     _NotImplemented,
     // MapAssertFail {msg: String},
 }
-fn new_stack(cards: &Vec<usize>) -> Vec<usize> {
-    cards.into_iter().rev().cloned().collect::<Vec<usize>>()
+fn linear(x:&u128, a: i128, b: i128) -> u128 {
+    let x = *x as i128;
+    // y = ax + b
+    (a*x+b).modulo(DECK_SIZE as i128) as u128
 }
-fn cut_n(cards: &Vec<usize>, n: isize) -> Vec<usize> {
-    let n = if n < 0 {DECK_SIZE as isize + n} else {n} as usize;
-    cards.into_iter().cycle().skip(n).take(DECK_SIZE).cloned().collect::<Vec<usize>>()
+fn new_stack(cards: &Vec<u128>) -> Vec<u128> {
+    cards.into_iter().rev().cloned().collect::<Vec<u128>>()
+    //cards.iter().map(|c| linear(c,-1,DECK_SIZE as i128-1)).collect::<Vec<u128>>()
 }
-fn increment_m(cards: &Vec<usize>, m: usize) -> Vec<usize> {
+fn cut_n(cards: &Vec<u128>, n: isize) -> Vec<u128> {
+    let n = if n < 0 {DECK_SIZE as isize + n} else {n} as u128;
+    cards.into_iter().cycle().skip(n as usize).take(DECK_SIZE as usize).cloned().collect::<Vec<u128>>()
+}
+fn increment_m(cards: &Vec<u128>, m: u128) -> Vec<u128> {
     if m >= DECK_SIZE {panic!(format!("m ({}) is greater than or equal to size ({})",m,DECK_SIZE))}
     if m == 0 {panic!(format!("increment_m must be 1 or more"))}
     let mut k = 0;
     for test_val in 1..DECK_SIZE {
         if test_val*m % DECK_SIZE == 1 {k = test_val; break;}
     };
-    if k == 0 {panic!("Special value k not found!")}
-    (0..DECK_SIZE).into_iter().map(|i| { cards[i*k % DECK_SIZE] }).collect()
+    if k == 0 {panic!("m and n not mutually prime")}
+    (0..DECK_SIZE).into_iter().map(|i| { cards[(i*k % DECK_SIZE) as usize] }).collect()
 }
-fn shuffle(cards: &Vec<usize>, input: &str) -> Vec<usize> {
+fn shuffle(cards: &Vec<u128>, input: &str) -> Vec<u128> {
     let mut new_deal = cards.clone();
     for line in input.lines() {
         let line = line.trim();
@@ -94,77 +108,79 @@ fn shuffle(cards: &Vec<usize>, input: &str) -> Vec<usize> {
 }
 
 // Used for testing:
-fn _create_deck_and_shuffle(input: &'static str) -> Vec<usize> {
-    let deck: Vec<usize> = (0..DECK_SIZE).collect();
+fn _create_deck_and_shuffle(input: &'static str) -> Vec<u128> {
+    let deck: Vec<u128> = (0..DECK_SIZE).collect();
     shuffle(&deck, input)
 }
 
-// #[test]
-// fn test_increment_n() {
-//     assert_eq!(DECK_SIZE, 10);
-//     let deck: Vec<usize> = (0..DECK_SIZE).collect();
-//     let deck = increment_m(&deck, 3);
-//     assert_eq!(deck, vec![0,7,4,1,8,5,2,9,6,3]);
-//     let deck: Vec<usize> = (0..DECK_SIZE).collect();
-//     let deck = increment_m(&deck, 7);
-//     assert_eq!(deck, vec![0,3,6,9,2,5,8,1,4,7]);
-// }
-// #[test]
-// fn test_cut_n() {
-//     assert_eq!(DECK_SIZE, 10);
-//     let deck: Vec<usize> = (0..DECK_SIZE).collect();
-//     let deck = cut_n(&deck, 3);
-//     assert_eq!(deck, vec![3,4,5,6,7,8,9,0,1,2]);
-//     let deck: Vec<usize> = (0..DECK_SIZE).collect();
-//     let deck = cut_n(&deck, -2);
-//     assert_eq!(deck, vec![8,9,0,1,2,3,4,5,6,7]);
-// }
-// #[test]
-// fn test_new_stack() {
-//     assert_eq!(DECK_SIZE, 10);
-//     let deck: Vec<usize> = (0..DECK_SIZE).collect();
-//     let deck = new_stack(&deck);
-//     assert_eq!(deck, vec![9,8,7,6,5,4,3,2,1,0]);
-// }
+#[test]
+fn test_increment_n() {
+    assert_eq!(DECK_SIZE, 10);
+    let deck: Vec<u128> = (0..DECK_SIZE).collect();
+    let deck = increment_m(&deck, 3);
+    assert_eq!(deck, vec![0,7,4,1,8,5,2,9,6,3]);
+    let deck: Vec<u128> = (0..DECK_SIZE).collect();
+    let deck = increment_m(&deck, 7);
+    assert_eq!(deck, vec![0,3,6,9,2,5,8,1,4,7]);
+}
+#[test]
+fn test_cut_n() {
+    assert_eq!(DECK_SIZE, 10);
+    let deck: Vec<u128> = (0..DECK_SIZE).collect();
+    let deck = cut_n(&deck, 3);
+    assert_eq!(deck, vec![3,4,5,6,7,8,9,0,1,2]);
+    let deck: Vec<u128> = (0..DECK_SIZE).collect();
+    let deck = cut_n(&deck, -2);
+    assert_eq!(deck, vec![8,9,0,1,2,3,4,5,6,7]);
+}
+#[test]
+fn test_new_stack() {
+    assert_eq!(DECK_SIZE, 10);
+    let deck: Vec<u128> = (0..DECK_SIZE).collect();
+    let deck = new_stack(&deck);
+    assert_eq!(deck, vec![9,8,7,6,5,4,3,2,1,0]);
+    let deck = new_stack(&deck);
+    assert_eq!(deck, vec![0,1,2,3,4,5,6,7,8,9]);
+}
 
 #[test]
 fn test_big_new_stack() {
     assert_eq!(DECK_SIZE, 10_007);
-    let deck: Vec<usize> = (0..DECK_SIZE).collect();
-    let deck: Vec<usize> = new_stack(&deck).into_iter().take(10).collect();
+    let deck: Vec<u128> = (0..DECK_SIZE).collect();
+    let deck: Vec<u128> = new_stack(&deck).into_iter().take(10).collect();
     assert_eq!(deck, vec![10_006,10_005,10_004,10_003,10_002,10_001,10_000,9_999,9_998,9_997]);
 }
 #[test]
 fn test_big_cut_n() {
     assert_eq!(DECK_SIZE, 10_007);
     let size = DECK_SIZE;
-    let deck: Vec<usize> = (0..DECK_SIZE).collect();
-    let deck_start: Vec<usize> = cut_n(&deck, 3).iter().take(5).map(|c|{*c}).collect();
+    let deck: Vec<u128> = (0..DECK_SIZE).collect();
+    let deck_start: Vec<u128> = cut_n(&deck, 3).iter().take(5).map(|c|{*c}).collect();
     assert_eq!(deck_start, vec![3,4,5,6,7]);
-    let deck_end: Vec<usize> = cut_n(&deck, 3).into_iter().skip(size-5).collect();
+    let deck_end: Vec<u128> = cut_n(&deck, 3).into_iter().skip(size as usize-5).collect();
     assert_eq!(deck_end, vec![10_005,10_006,0,1,2]);
     // negative cut
     let size = DECK_SIZE;
-    let deck: Vec<usize> = (0..DECK_SIZE).collect();
-    let deck_start: Vec<usize> = cut_n(&deck, -3).iter().take(5).map(|c|{*c}).collect();
+    let deck: Vec<u128> = (0..DECK_SIZE).collect();
+    let deck_start: Vec<u128> = cut_n(&deck, -3).iter().take(5).map(|c|{*c}).collect();
     assert_eq!(deck_start, vec![10_004,10_005,10_006,0,1]);
-    let deck_end: Vec<usize> = cut_n(&deck, -3).into_iter().skip(size-5).collect();
+    let deck_end: Vec<u128> = cut_n(&deck, -3).into_iter().skip(size as usize-5).collect();
     assert_eq!(deck_end, vec![9_999,10_000,10_001,10_002,10_003]);
 }
 #[test]
 fn test_big_increment_n() {
     assert_eq!(DECK_SIZE, 10_007);
-    let deck: Vec<usize> = (0..DECK_SIZE).collect();
-    let deck: Vec<usize> = increment_m(&deck, 2).into_iter().take(10).collect();
+    let deck: Vec<u128> = (0..DECK_SIZE).collect();
+    let deck: Vec<u128> = increment_m(&deck, 2).into_iter().take(10).collect();
     assert_eq!(deck, vec![0,5004,1,5005,2,5006,3,5007,4,5008]);
-    let deck: Vec<usize> = (0..DECK_SIZE).collect();
-    let deck: Vec<usize> = increment_m(&deck, 3).into_iter().take(10).collect();
+    let deck: Vec<u128> = (0..DECK_SIZE).collect();
+    let deck: Vec<u128> = increment_m(&deck, 3).into_iter().take(10).collect();
     assert_eq!(deck, vec![0,3336,6672,1,3337,6673,2,3338,6674,3]);
-    let deck: Vec<usize> = (0..DECK_SIZE).collect();
-    let deck: Vec<usize> = increment_m(&deck, 9).into_iter().take(10).collect();
+    let deck: Vec<u128> = (0..DECK_SIZE).collect();
+    let deck: Vec<u128> = increment_m(&deck, 9).into_iter().take(10).collect();
     assert_eq!(deck, vec![0,1112,2224,3336,4448,5560,6672,7784,8896,1]);
-    let deck: Vec<usize> = (0..DECK_SIZE).collect();
-    let deck: Vec<usize> = increment_m(&deck, 10_006).into_iter().take(10).collect();
+    let deck: Vec<u128> = (0..DECK_SIZE).collect();
+    let deck: Vec<u128> = increment_m(&deck, 10_006).into_iter().take(10).collect();
     assert_eq!(deck, vec![0,10_006,10_005,10_004,10_003,10_002,10_001,10_000,9_999,9_998,]);
 }
 
