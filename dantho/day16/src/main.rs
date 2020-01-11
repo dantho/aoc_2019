@@ -11,29 +11,33 @@ fn main() {
 
     // println!("EX5: Sum of 03036732577212944063491565474664 is {}", 0+3+0+3+6+7+3+2+5+7+7+2+1+2+9+4+4+0+6+3+4+9+1+5+6+5+4+7+4+6+6+4);
     println!("EX7: Sum of 03081770884921959731165446850517 is {}", 0+3+0+8+1+7+7+0+8+8+4+9+2+1+9+5+9+7+3+1+1+6+5+4+4+6+8+5+0+5+1+7); // EX7 -- 144
-    println!("100 Phase Calc (Part 2): {}", process(EX7, 100));
+    for end_multiple in 0..10 {
+        println!("100 Phase Calc (Part 2): {}", process(EX7, 100, end_multiple));
+    }
     let _avoid_unused_warning = [INPUT, EX5, EX6, EX7];
 }
 // WARNING:  EDGE CASE NOT YET IMPLEMENTED! -- WHERE starting_ndx lands WITHIN 8 DIGITS OF END OF INPUT.  :(  See EX5.
-fn process(input: &'static str, phase_cnt: u32) -> String {
+fn process(input: &'static str, phase_cnt: u32, end_multiple: usize) -> String {
     let input_len = input.len();
     let offset: usize = str2digits(input, 7, 0); // "first seven digits" is message offset
     let starting_ndx = offset % input_len;
     let mut in_digits: Vec<usize> = input.chars().map(|c|c.to_digit(10).unwrap() as usize).collect();
     for _phase in 0..phase_cnt {
         let sum_base_input_digits: usize = in_digits.iter().sum::<usize>();
-        let debug_sum_remaining_input_blocks = sum_base_input_digits * ((input_len*BASE_REPEAT - offset)/input_len);
-        let sum_remaining_input_blocks = sum_base_input_digits * ((input_len*BASE_REPEAT - offset)/input_len) % 10;
+        // let debug_sum_remaining_input_blocks = sum_base_input_digits * ((input_len*BASE_REPEAT - offset)/input_len);
+        // let sum_remaining_input_blocks = sum_base_input_digits * ((input_len*BASE_REPEAT - offset)/input_len) % 10;
+        let sum_remaining_input_blocks = sum_base_input_digits * end_multiple;
         let mut rhs_digits: Vec<usize> = Vec::new();
         for dig_ndx in 0..input_len {
             let x = (in_digits.iter().skip(dig_ndx).sum::<usize>() + sum_remaining_input_blocks) % 10;
             rhs_digits.push(x);
         }
-        println!("Phase {}: {} {} from {} in remaining", _phase, digits2string(&in_digits), sum_remaining_input_blocks, debug_sum_remaining_input_blocks);
+        assert_eq!(rhs_digits.len(), input_len);
+        // println!("Phase {}: {} {}", _phase, digits2string(&in_digits), sum_remaining_input_blocks);
         in_digits = rhs_digits;
     }
     println!("Phase {}: {}", phase_cnt, digits2string(&in_digits));
-    in_digits.iter().skip(starting_ndx).take(8).fold(0, |prev, d|{d + 10*prev}).to_string()
+    in_digits.iter().skip(starting_ndx).take(19).fold(0, |prev, d|{d + 10*prev}).to_string()
 }
 fn digits2string(input: &Vec<usize>) -> String {
     let mut ret_string = String::new();
