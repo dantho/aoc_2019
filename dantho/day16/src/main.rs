@@ -7,6 +7,10 @@ fn main() {
     let _avoid_unused_warning = [SIGNAL, EX1, EX2, EX3, EX4, EX5, EX6];
     let _avoid_unused_answers = [
         PART1_ANSWER,
+        EX0_ANSWER1,
+        EX0_ANSWER2,
+        EX0_ANSWER3,
+        EX0_ANSWER4,
         EX1_ANSWER,
         EX2_ANSWER,
         EX3_ANSWER,
@@ -95,38 +99,39 @@ const EX5_ANSWER: u64 = 78725270;
 const EX6: &'static str = "03081770884921959731165446850517";
 const EX6_ANSWER: u64 = 53553731;
 
-// #[test]
-// fn test_part1() {
-//     assert_eq!(part1(SIGNAL, 100), PART1_ANSWER);
-// }
+#[test]
+fn test_part1() {
+    assert_eq!(part1(SIGNAL, 100), PART1_ANSWER);
+}
 #[test]
 fn test_ex0() {
     assert_eq!(part1(EX0, 1), EX0_ANSWER1);
-    // assert_eq!(part1(EX0, 2), EX0_ANSWER2);
-    // assert_eq!(part1(EX0, 3), EX0_ANSWER3);
-    // assert_eq!(part1(EX0, 4), EX0_ANSWER4);
+    assert_eq!(part1(EX0, 2), EX0_ANSWER2);
+    assert_eq!(part1(EX0, 3), EX0_ANSWER3);
+    assert_eq!(part1(EX0, 4), EX0_ANSWER4);
 }
-// #[test]
-// fn test_ex1() {
-//     assert_eq!(part1(EX1, 100), EX1_ANSWER);
-// }
-// #[test]
-// fn test_ex2() {
-//     assert_eq!(part1(EX2, 100), EX2_ANSWER);
-// }
-// #[test]
-// fn test_ex3() {
-//     assert_eq!(part1(EX3, 100), EX3_ANSWER);
-// }
+#[test]
+fn test_ex1() {
+    assert_eq!(part1(EX1, 100), EX1_ANSWER);
+}
+#[test]
+fn test_ex2() {
+    assert_eq!(part1(EX2, 100), EX2_ANSWER);
+}
+#[test]
+fn test_ex3() {
+    assert_eq!(part1(EX3, 100), EX3_ANSWER);
+}
+// Part2
 // #[test]
 // fn test_ex4() {
-//     assert_eq!(part1(EX4, 100), EX4_ANSWER);
+//     assert_eq!(part2(EX4, 100), EX4_ANSWER);
 // }
 // #[test]
 // fn test_ex5() {
-//     assert_eq!(part1(EX5, 100), EX5_ANSWER);
+//     assert_eq!(part2(EX5, 100), EX5_ANSWER);
 // }
 // #[test]
 // fn test_ex6() {
-//     assert_eq!(part1(EX6, 100), EX6_ANSWER);
+//     assert_eq!(part2(EX6, 100), EX6_ANSWER);
 // }
