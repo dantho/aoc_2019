@@ -53,12 +53,19 @@ pub fn part2(signal: &str, phase_cnt: u8) -> usize {
     }).into_iter().rev().take(8).fold(0,|num,d|{num*10 + d as usize})
 }
 
+// pub fn do_phase_part2(input: Vec<u8>) -> Vec<u8> {
+//     input.into_iter().fold((0,Vec::new()),|(prev,mut rolling_sum), d| {
+//         let mod_sum_so_far = (d + prev) % 10;
+//         rolling_sum.push(mod_sum_so_far);
+//         (mod_sum_so_far,rolling_sum)
+//     }).1
+// }
 pub fn do_phase_part2(input: Vec<u8>) -> Vec<u8> {
-    input.into_iter().fold((0,Vec::new()),|(prev,mut rolling_sum), d| {
-        let mod_sum_so_far = (d + prev) % 10;
-        rolling_sum.push(mod_sum_so_far);
-        (mod_sum_so_far,rolling_sum)
-    }).1
+    let mut mod_sum_so_far = 0;
+    input.into_iter().map(|d| {
+        mod_sum_so_far = (d + mod_sum_so_far) % 10;
+        mod_sum_so_far
+    }).collect()
 }
 
 pub fn do_phase(input: &Vec<u8>) -> Vec<u8> {
