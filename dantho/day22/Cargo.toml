@@ -8,3 +8,4 @@ edition = "2018"
 
 [dependencies]
 modulo = "0.1.2"
+regex = "1"

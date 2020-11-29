@@ -1,11 +1,25 @@
 /// https://adventofcode.com/2019/day/22
-const DECK_SIZE:u128 = 10_007;
+extern crate regex;
+use regex::Regex;
+use Command::*;
 
-use modulo::Mod;
+const DECK_SIZE:usize = 10_007;
 
 // const DECK_SIZE:u128 = 119_315_717_514_047;
 fn main() -> Result<(),Error> {
-    let deck: Vec<u128> = (0..DECK_SIZE).collect();
+    let orig_deck = 0..DECK_SIZE;
+    let mut deck = Box::new(orig_deck.cycle().take(DECK_SIZE));
+    let commands = command_parse(INPUT);
+    //for c in commands { println!("{:?}", c); }
+    for cmd in commands {
+        deck = match cmd {
+            Cut(n) => Box::new(deck.cycle().skip(n).take(DECK_SIZE) as Iterator<Item=usize>),
+            Increment(n) => Box::new(deck.cycle().enumerate().filter(|(n,_)|n%n = 0).map(|(_,c)|c).take(DECK_SIZE) as Iterator<Item=usize>),
+            NewStack => Box::new(deck.rev() as Iterator<Item=usize>)
+        }
+    }
+    let pos_of_2019 = deck.enumerate().filter(|(_,c)|*c==2019).take(1).fold(0,|_acc,(pos,_)|pos);
+    println!("{}", pos_of_2019);
     Ok(())
 }
 
@@ -15,36 +29,53 @@ enum Error {
     // MapAssertFail {msg: String},
 }
 
+#[derive(Debug)]
 enum Command {
     NewStack,
-    Increment(u128),
-    Shuffle(u128)
+    Increment(usize),
+    Cut(usize)
 }
 
-// Used for testing:
-fn _create_deck_and_shuffle(input: &'static str) -> Vec<u128> {
-    let deck: Vec<u128> = (0..DECK_SIZE).collect();
-    shuffle(&deck, input)
+fn command_parse (input: &str) -> Vec<Command> {
+    let set = Regex::new(
+        r"deal with increment (?P<Increment>\d+)|cut (?P<Cut>-?\d+)|deal into new stack(?P<NewStack>)",
+    ).unwrap();
+    set.captures_iter(input).map(|cap| {
+        if let Some(cut) = cap.name("Cut") {
+            Cut(match cut.as_str().parse::<isize>().unwrap() {
+                n if n >= 0 => n,
+                n if n < 0 => DECK_SIZE as isize + n
+            } as usize)
+        }
+        else if let Some(incr) = cap.name("Increment") {
+            Increment((incr.as_str()).parse::<usize>().unwrap())
+        }
+        else if let Some(_new_stack) = cap.name("NewStack") {
+            NewStack
+        }
+        else {
+            // A capture we don't understand??  (Didn't parse, above.)
+            // This will ONLY detect matched but not handled content
+            // Any unmatched content in the string is ignored
+            panic!(format!("Unknown: {}", &cap[0]));
+        }
+    }).collect()
 }
 
-#[cfg(test)]
-const EX1: &'static str = r#"
+const _EX1: &'static str = "
 deal with increment 7
-"#;
-#[cfg(test)]
-const EX2: &'static str = r#"
+";
+const _EX2: &'static str = "
 cut 6
 deal with increment 7
 deal into new stack
-"#;
-#[cfg(test)]
-const EX3: &'static str = r#"
+";
+const _EX3: &'static str = "
 deal with increment 7
 deal with increment 9
 cut -2
-"#;
-#[cfg(test)]
-const EX4: &'static str = r#"
+";
+const _EX4: &'static str = "
 deal into new stack
 cut -2
 deal with increment 7
@@ -55,9 +86,8 @@ cut 3
 deal with increment 9
 deal with increment 3
 cut -1
-"#;
-#[cfg(test)]
-const INPUT: &'static str = r#"
+";
+const INPUT: &'static str = "
 cut 2257
 deal with increment 18
 cut -7620
@@ -158,8 +188,14 @@ deal with increment 52
 cut -9189
 deal with increment 58
 deal into new stack
-"#;
+";
 
+// Used for testing:
+// fn _create_deck_and_shuffle(input: &'static str) -> Vec<u128> {
+//     let deck: Vec<u128> = (0..DECK_SIZE).collect();
+//     shuffle(&deck, input)
+// }
+//
 // #[test]
 // fn test_increment_n() {
 //     assert_eq!(DECK_SIZE, 10);
@@ -265,9 +301,9 @@ deal into new stack
 // #[test]
 // fn test_ex1() {
 //     if DECK_SIZE == 10 {
-//         assert_eq!(_create_deck_and_shuffle(EX1), vec![0, 3, 6, 9, 2, 5, 8, 1, 4, 7]);
+//         assert_eq!(_create_deck_and_shuffle(_EX1), vec![0, 3, 6, 9, 2, 5, 8, 1, 4, 7]);
 //     } else if DECK_SIZE == 10_007 {
-//         assert_eq!(_create_deck_and_shuffle(EX1).iter().take(10).cloned().collect::<Vec<_>>(), 
+//         assert_eq!(_create_deck_and_shuffle(_EX1).iter().take(10).cloned().collect::<Vec<_>>(), 
 //         vec![0, 7148, 4289, 1430, 8578, 5719, 2860, 1, 7149, 4290]);
 //     } else {
 //         assert!(false, "DECK_SIZE not 10 or 10_007")
@@ -276,9 +312,9 @@ deal into new stack
 // #[test]
 // fn test_ex2() {
 //     if DECK_SIZE == 10 {
-//         assert_eq!(_create_deck_and_shuffle(EX2), vec![3, 0, 7, 4, 1, 8, 5, 2, 9, 6]);
+//         assert_eq!(_create_deck_and_shuffle(_EX2), vec![3, 0, 7, 4, 1, 8, 5, 2, 9, 6]);
 //     } else if DECK_SIZE == 10_007 {
-//         assert_eq!(_create_deck_and_shuffle(EX2).iter().take(10).cloned().collect::<Vec<_>>(),
+//         assert_eq!(_create_deck_and_shuffle(_EX2).iter().take(10).cloned().collect::<Vec<_>>(),
 //         vec![2865, 5724, 8583, 1435, 4294, 7153, 5, 2864, 5723, 8582]);
 //     } else {
 //         assert!(false, "DECK_SIZE not 10 or 10_007")
@@ -287,9 +323,9 @@ deal into new stack
 // #[test]
 // fn test_ex3() {
 //     if DECK_SIZE == 10 {
-//         assert_eq!(_create_deck_and_shuffle(EX3), vec![6, 3, 0, 7, 4, 1, 8, 5, 2, 9]);
+//         assert_eq!(_create_deck_and_shuffle(_EX3), vec![6, 3, 0, 7, 4, 1, 8, 5, 2, 9]);
 //     } else if DECK_SIZE == 10_007 {
-//         assert_eq!(_create_deck_and_shuffle(EX3).iter().take(10).cloned().collect::<Vec<_>>(),
+//         assert_eq!(_create_deck_and_shuffle(_EX3).iter().take(10).cloned().collect::<Vec<_>>(),
 //         vec![3971, 6989, 0, 3018, 6036, 9054, 2065, 5083, 8101, 1112]);
 //     } else {
 //         assert!(false, "DECK_SIZE not 10 or 10_007")
@@ -298,9 +334,9 @@ deal into new stack
 // #[test]
 // fn test_ex4() {
 //     if DECK_SIZE == 10 {
-//         assert_eq!(_create_deck_and_shuffle(EX4), vec![9, 2, 5, 8, 1, 4, 7, 0, 3, 6]);
+//         assert_eq!(_create_deck_and_shuffle(_EX4), vec![9, 2, 5, 8, 1, 4, 7, 0, 3, 6]);
 //     } else if DECK_SIZE == 10_007 {
-//         assert_eq!(_create_deck_and_shuffle(EX4).iter().take(10).cloned().collect::<Vec<_>>(),
+//         assert_eq!(_create_deck_and_shuffle(_EX4).iter().take(10).cloned().collect::<Vec<_>>(),
 //         vec![2799, 6944, 1082, 5227, 9372, 3510, 7655, 1793, 5938, 76]);
 //     } else {
 //         assert!(false, "DECK_SIZE not 10 or 10_007")
