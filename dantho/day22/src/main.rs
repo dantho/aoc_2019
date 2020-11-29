@@ -7,19 +7,17 @@ const DECK_SIZE:usize = 10_007;
 
 // const DECK_SIZE:u128 = 119_315_717_514_047;
 fn main() -> Result<(),Error> {
-    let orig_deck = 0..DECK_SIZE;
-    let mut deck = Box::new(orig_deck.cycle().take(DECK_SIZE));
+    let mut pos_2019 = 2019; // Starting location of card '2019'
     let commands = command_parse(INPUT);
-    //for c in commands { println!("{:?}", c); }
+    //for c in &commands { println!("{:?}", *c); }
     for cmd in commands {
-        deck = match cmd {
-            Cut(n) => Box::new(deck.cycle().skip(n).take(DECK_SIZE) as Iterator<Item=usize>),
-            Increment(n) => Box::new(deck.cycle().enumerate().filter(|(n,_)|n%n = 0).map(|(_,c)|c).take(DECK_SIZE) as Iterator<Item=usize>),
-            NewStack => Box::new(deck.rev() as Iterator<Item=usize>)
+        pos_2019 = match cmd {
+            Cut(n) => (pos_2019 + DECK_SIZE - n) % DECK_SIZE,
+            Increment(n) => pos_2019 * n % DECK_SIZE,
+            NewStack => DECK_SIZE - pos_2019 - 1
         }
     }
-    let pos_of_2019 = deck.enumerate().filter(|(_,c)|*c==2019).take(1).fold(0,|_acc,(pos,_)|pos);
-    println!("{}", pos_of_2019);
+    println!("{}", pos_2019);
     Ok(())
 }
 
@@ -44,7 +42,7 @@ fn command_parse (input: &str) -> Vec<Command> {
         if let Some(cut) = cap.name("Cut") {
             Cut(match cut.as_str().parse::<isize>().unwrap() {
                 n if n >= 0 => n,
-                n if n < 0 => DECK_SIZE as isize + n
+                n => DECK_SIZE as isize + n,
             } as usize)
         }
         else if let Some(incr) = cap.name("Increment") {
