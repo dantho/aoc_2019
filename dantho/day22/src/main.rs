@@ -1,23 +1,32 @@
 /// https://adventofcode.com/2019/day/22
 extern crate regex;
 use regex::Regex;
+use std::collections::HashSet;
 use Command::*;
 
-const DECK_SIZE:usize = 10_007;
+const DECK_SIZE: usize = 119_315_717_514_047;
+const SHUFFLE_REPEAT: usize = 101_741_582_076_661;
 
 // const DECK_SIZE:u128 = 119_315_717_514_047;
-fn main() -> Result<(),Error> {
-    let mut pos_2019 = 2019; // Starting location of card '2019'
+fn main() -> Result<(), Error> {
+    const CARD: usize = 2020;
+    let mut pos_of_card = CARD; // Starting location of card '2019'
     let commands = command_parse(INPUT);
     //for c in &commands { println!("{:?}", *c); }
-    for cmd in commands {
-        pos_2019 = match cmd {
-            Cut(n) => (pos_2019 + DECK_SIZE - n) % DECK_SIZE,
-            Increment(n) => pos_2019 * n % DECK_SIZE,
-            NewStack => DECK_SIZE - pos_2019 - 1
+    let mut detect_repeats = HashSet::new();
+    for _ in 0..SHUFFLE_REPEAT {
+        for (ndx,cmd) in commands.iter().enumerate() {
+            if !detect_repeats.insert((pos_of_card, ndx)) {
+                println!("Repeat Found at {} at command index {}", pos_of_card, ndx);
+            };
+            pos_of_card = match cmd {
+                Cut(n) => (pos_of_card + DECK_SIZE - n) % DECK_SIZE,
+                Increment(n) => pos_of_card * n % DECK_SIZE,
+                NewStack => DECK_SIZE - pos_of_card - 1,
+            }
         }
     }
-    println!("{}", pos_2019);
+    println!("Card {} located at {}", CARD, pos_of_card);
     Ok(())
 }
 
@@ -31,33 +40,32 @@ enum Error {
 enum Command {
     NewStack,
     Increment(usize),
-    Cut(usize)
+    Cut(usize),
 }
 
-fn command_parse (input: &str) -> Vec<Command> {
+fn command_parse(input: &str) -> Vec<Command> {
     let set = Regex::new(
         r"deal with increment (?P<Increment>\d+)|cut (?P<Cut>-?\d+)|deal into new stack(?P<NewStack>)",
     ).unwrap();
-    set.captures_iter(input).map(|cap| {
-        if let Some(cut) = cap.name("Cut") {
-            Cut(match cut.as_str().parse::<isize>().unwrap() {
-                n if n >= 0 => n,
-                n => DECK_SIZE as isize + n,
-            } as usize)
-        }
-        else if let Some(incr) = cap.name("Increment") {
-            Increment((incr.as_str()).parse::<usize>().unwrap())
-        }
-        else if let Some(_new_stack) = cap.name("NewStack") {
-            NewStack
-        }
-        else {
-            // A capture we don't understand??  (Didn't parse, above.)
-            // This will ONLY detect matched but not handled content
-            // Any unmatched content in the string is ignored
-            panic!(format!("Unknown: {}", &cap[0]));
-        }
-    }).collect()
+    set.captures_iter(input)
+        .map(|cap| {
+            if let Some(cut) = cap.name("Cut") {
+                Cut(match cut.as_str().parse::<isize>().unwrap() {
+                    n if n >= 0 => n,
+                    n => DECK_SIZE as isize + n,
+                } as usize)
+            } else if let Some(incr) = cap.name("Increment") {
+                Increment((incr.as_str()).parse::<usize>().unwrap())
+            } else if let Some(_new_stack) = cap.name("NewStack") {
+                NewStack
+            } else {
+                // A capture we don't understand??  (Didn't parse, above.)
+                // This will ONLY detect matched but not handled content
+                // Any unmatched content in the string is ignored
+                panic!(format!("Unknown: {}", &cap[0]));
+            }
+        })
+        .collect()
 }
 
 const _EX1: &'static str = "
@@ -301,7 +309,7 @@ deal into new stack
 //     if DECK_SIZE == 10 {
 //         assert_eq!(_create_deck_and_shuffle(_EX1), vec![0, 3, 6, 9, 2, 5, 8, 1, 4, 7]);
 //     } else if DECK_SIZE == 10_007 {
-//         assert_eq!(_create_deck_and_shuffle(_EX1).iter().take(10).cloned().collect::<Vec<_>>(), 
+//         assert_eq!(_create_deck_and_shuffle(_EX1).iter().take(10).cloned().collect::<Vec<_>>(),
 //         vec![0, 7148, 4289, 1430, 8578, 5719, 2860, 1, 7149, 4290]);
 //     } else {
 //         assert!(false, "DECK_SIZE not 10 or 10_007")
